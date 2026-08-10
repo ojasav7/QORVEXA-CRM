@@ -128,12 +128,14 @@ router.delete(
 );
 
 // POST /api/fields/:objectType — create a custom field (admin only)
+// No z.default() here — defaults would leak through .partial() on PATCH and
+// silently reset required/options. Applied explicitly in create.
 const fieldSchema = z.object({
   key: z.string().regex(/^[a-z][a-zA-Z0-9]*$/, "Key must start with a letter and contain only letters/numbers"),
   label: z.string().min(1),
   type: z.enum(TYPES as [string, ...string[]]),
-  required: z.boolean().optional().default(false),
-  options: z.array(z.string()).optional().default([]),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
 });
 router.post(
   "/:objectType",
@@ -144,8 +146,9 @@ router.post(
     const def = OBJECTS.find((o) => o.type === req.params.objectType);
     if (!def) throw badRequest("Unknown object type");
     const input = fieldSchema.parse(req.body);
+    const options = input.options ?? [];
     if (input.type === "select" || input.type === "multiselect") {
-      if (!input.options.length) throw badRequest("Select fields need at least one option");
+      if (!options.length) throw badRequest("Select fields need at least one option");
     }
     const existing = await db().fieldDef.findFirst({
       where: { orgId: user.orgId, environment, objectType: def.type, key: input.key },
@@ -154,7 +157,7 @@ router.post(
 
     const count = await db().fieldDef.count({ where: { orgId: user.orgId, environment, objectType: def.type } });
     const field = await db().fieldDef.create({
-      data: { ...input, orgId: user.orgId, environment, objectType: def.type, order: count },
+      data: { ...input, required: input.required ?? false, options, orgId: user.orgId, environment, objectType: def.type, order: count },
     });
     await emitEvent({ orgId: user.orgId, environment, type: "schema.field_created", entity: "field", entityId: field.id, actorId: user.id, payload: { objectType: def.type, key: input.key } });
     ok(res, { field }, 201);

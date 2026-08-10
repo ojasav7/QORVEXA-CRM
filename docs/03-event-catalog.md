@@ -51,11 +51,16 @@ webhook.created        org.created
 | `contact.created` / `updated` / `deleted` | Contact lifecycle | created: the row |
 | `account.created` / `updated` / `deleted` | Account lifecycle | — |
 | `lead.created` / `updated` / `deleted` | Lead lifecycle | — |
+| `lead.routed` | A lead got an owner from the round-robin pool **or** an admin/manager manually reassigned it | `{ from, to, mode: "round-robin" \| "manual" }` |
+| `lead.captured` | A public lead-capture form created a lead | `{ formId, slug, formName }` |
 | `deal.created` / `deleted` | Deal lifecycle | `{ stage }` on create |
 | `deal.stage_changed` | Deal moved between pipeline stages | `{ from, to }` |
 | `deal.updated` | Non-stage deal edit | — |
 | `task.created` / `updated` / `deleted` | Task lifecycle | — |
 | `note.created` / `updated` / `deleted` | Note lifecycle | — |
+| `contact.merged` / `account.merged` (per type: `<type>.merged`) | A record was merged into another via the **merge UI** | `{ via: "records", masterId, mergeId, fieldsChanged }` (import-merge rows carry `{ via: "import", row, fields, changes }`) |
+| `segment.created` / `updated` / `deleted` | Dynamic segment lifecycle (admin) | `{ objectType, name }` |
+| `leadform.created` / `updated` / `deleted` | Public lead-capture form lifecycle (admin) | `{ name, slug }` |
 
 > `task.completed` is reserved: it will fire when a task moves to `done` (the service currently emits `task.updated`; the dedicated event lands with Phase 3 automation so listeners aren't overloaded).
 

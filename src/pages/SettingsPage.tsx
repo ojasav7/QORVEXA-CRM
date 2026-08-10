@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Copy, Check, KeyRound, GitBranch, RefreshCcw, ArrowRight, Database, Flag, HardDriveDownload, Shield, Globe, KeySquare } from "lucide-react";
+import { Plus, Trash2, Copy, Check, KeyRound, GitBranch, RefreshCcw, ArrowRight, Database, Flag, HardDriveDownload, Shield, Globe, KeySquare, Route as RouteIcon, ClipboardList, Share2 } from "lucide-react";
 import { api, del, patch, post, ApiError, type User, type Org } from "../lib/api";
 import { Badge, Field, Modal, Spinner } from "../components/ui";
 import { useSession } from "../App";
@@ -13,7 +13,7 @@ type Webhook = { id: string; url: string; events: string[]; secret: string; acti
 
 export default function SettingsPage() {
   const { user, org, refresh } = useSession();
-  const [tab, setTab] = useState<"team" | "fields" | "webhooks" | "environments" | "flags" | "backups" | "tokens">("team");
+  const [tab, setTab] = useState<"team" | "fields" | "webhooks" | "environments" | "flags" | "backups" | "tokens" | "routing" | "forms">("team");
   const isAdmin = user?.role === "admin";
 
   const tabs: [string, string][] = [
@@ -24,6 +24,8 @@ export default function SettingsPage() {
     ["flags", "Feature flags"],
     ["backups", "Backups"],
     ["tokens", "API tokens"],
+    ["routing", "Lead routing"],
+    ["forms", "Lead capture"],
   ];
 
   return (
@@ -48,7 +50,246 @@ export default function SettingsPage() {
       {tab === "flags" && (isAdmin ? <FlagsTab /> : <NotAdmin />)}
       {tab === "backups" && (isAdmin ? <BackupsTab /> : <NotAdmin />)}
       {tab === "tokens" && (isAdmin ? <TokensTab /> : <NotAdmin />)}
+      {tab === "routing" && (isAdmin ? <LeadRoutingTab /> : <NotAdmin />)}
+      {tab === "forms" && (isAdmin ? <LeadCaptureTab /> : <NotAdmin />)}
     </div>
+  );
+}
+
+// ── Lead routing (Phase 1) ────────────────────────────────────────────────────
+function LeadRoutingTab() {
+  const [mode, setMode] = useState<"manual" | "round-robin">("manual");
+  const [pool, setPool] = useState<string[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    void api<{ items: User[] }>("/api/users").then((d) => setUsers(d.items.filter((u) => u.role !== "admin"))).catch(() => {});
+    void api<{ org: { settings: Record<string, any> } }>("/api/org").then((d) => {
+      const rr = d.org.settings?.leadRouting;
+      setMode(rr?.mode === "round-robin" ? "round-robin" : "manual");
+      setPool(Array.isArray(rr?.pool) ? rr.pool.map(String) : []);
+    }).catch(() => {});
+  }, []);
+
+  const toggleUser = (id: string) => setPool((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const d = await api<{ org: { settings: Record<string, any> } }>("/api/org");
+      const settings = d.org.settings ?? {};
+      const prev = (settings.leadRouting ?? {}) as Record<string, any>;
+      await patch("/api/org", { settings: { ...settings, leadRouting: { mode, pool: mode === "round-robin" ? pool : [], cursor: prev.cursor ?? 0 } } });
+      setMsg({ kind: "ok", text: "Routing config saved." });
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed to save" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] px-6 py-4">
+          <RouteIcon className="size-4 text-accent-400" />
+          <h2 className="text-sm font-semibold text-white">Inbound lead assignment</h2>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Mode</p>
+            <div className="flex gap-2">
+              {([[ "manual", "Manual"], ["round-robin", "Round-robin"]] as const).map(([v, l]) => (
+                <button key={v} onClick={() => setMode(v)}
+                  className={`chip transition-colors ${mode === v ? "bg-accent-500/25 text-accent-300 border border-accent-500/30" : "bg-white/[0.06] text-slate-400 hover:text-white"}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-600">
+              Round-robin hands each new lead (no explicit owner) to the next person in the pool, skipping inactive users. An explicit <span className="font-mono">ownerId</span> on create always wins, and admins can reassign any lead manually.
+            </p>
+          </div>
+
+          {mode === "round-robin" && (
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Pool (managers + reps)</p>
+              <div className="flex flex-wrap gap-2">
+                {users.map((u) => (
+                  <button key={u.id} onClick={() => toggleUser(u.id)}
+                    className={`chip transition-colors ${pool.includes(u.id) ? "bg-accent-500/25 text-accent-300 border border-accent-500/30" : "bg-white/[0.06] text-slate-400 hover:text-white"}`}>
+                    {u.name} · <span className="capitalize">{u.role}</span>
+                  </button>
+                ))}
+                {users.length === 0 && <span className="text-xs text-slate-600">Invite managers/reps first (Settings → Team).</span>}
+              </div>
+            </div>
+          )}
+
+          {msg && <div className={`rounded-xl px-4 py-3 text-sm ${msg.kind === "ok" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>{msg.text}</div>}
+          <div className="flex justify-end">
+            <button className="btn-primary" onClick={save} disabled={busy || (mode === "round-robin" && pool.length === 0)}>
+              {busy ? <Spinner className="size-4" /> : "Save routing"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Public lead-capture forms (Phase 1) ───────────────────────────────────────
+type LeadFormRow = { id: string; name: string; slug: string; fields: { key: string; label: string; required: boolean; type: string }[]; submitLabel: string; active: boolean; createdAt: string };
+const LEAD_FORM_FIELDS = [
+  { key: "firstName", label: "First name", type: "text" },
+  { key: "lastName", label: "Last name", type: "text" },
+  { key: "email", label: "Email", type: "email" },
+  { key: "phone", label: "Phone", type: "phone" },
+  { key: "company", label: "Company", type: "text" },
+];
+
+function LeadCaptureTab() {
+  const [forms, setForms] = useState<LeadFormRow[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api<{ items: LeadFormRow[] }>("/api/lead-forms");
+      setForms(d.items);
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed to load forms" });
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const copy = async (text: string, id: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 1500);
+  };
+  const url = (f: LeadFormRow) => `${window.location.origin}/forms/${f.slug}`;
+  const embed = (f: LeadFormRow) => `<iframe src="${url(f)}" width="100%" height="560" frameBorder="0" title="${f.name}"></iframe>`;
+
+  const toggleActive = async (f: LeadFormRow) => {
+    try {
+      await patch(`/api/lead-forms/${f.id}`, { active: !f.active });
+      await load();
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed" });
+    }
+  };
+  const remove = async (f: LeadFormRow) => {
+    if (!confirm(`Delete form "${f.name}"? Its public URL stops working immediately.`)) return;
+    try {
+      await del(`/api/lead-forms/${f.id}`);
+      await load();
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed" });
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Publish a public form — no login needed. Submissions become leads (source <span className="text-slate-300">Website</span>), routed by your <span className="font-mono text-accent-400">Lead routing</span> config, with a honeypot + rate limit.</p>
+        <button className="btn-primary" onClick={() => setCreating(true)}><ClipboardList className="size-4" /> New form</button>
+      </div>
+
+      <div className="card divide-y divide-white/[0.04]">
+        {forms.map((f) => (
+          <div key={f.id} className="flex flex-wrap items-center gap-3 px-6 py-4">
+            <ClipboardList className={`size-4 ${f.active ? "text-mint-400" : "text-slate-600"}`} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-white">{f.name}</span>
+                <span className="font-mono text-xs text-slate-600">/forms/{f.slug}</span>
+                <Badge tone={f.active ? "green" : "rose"}>{f.active ? "live" : "paused"}</Badge>
+              </div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                {f.fields.map((x) => x.label).join(" · ")} · button “{f.submitLabel}”
+              </div>
+            </div>
+            <button className="btn-ghost !px-3 !py-1.5" onClick={() => copy(url(f), `url-${f.id}`)} title="Copy form URL">
+              {copied === `url-${f.id}` ? <Check className="size-4 text-mint-400" /> : <Share2 className="size-4" />} URL
+            </button>
+            <button className="btn-ghost !px-3 !py-1.5" onClick={() => copy(embed(f), `emb-${f.id}`)} title="Copy iframe embed code">
+              {copied === `emb-${f.id}` ? <Check className="size-4 text-mint-400" /> : <Copy className="size-4" />} Embed
+            </button>
+            <button className="btn-ghost !px-3 !py-1.5" onClick={() => void toggleActive(f)}>{f.active ? "Pause" : "Publish"}</button>
+            <button onClick={() => void remove(f)} className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"><Trash2 className="size-4" /></button>
+          </div>
+        ))}
+        {forms.length === 0 && <div className="p-8 text-center text-sm text-slate-600">No forms yet — create one to get a public lead-capture URL.</div>}
+      </div>
+      {msg && <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${msg.kind === "ok" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>{msg.text}</div>}
+      {creating && <FormModal onClose={() => setCreating(false)} onDone={async () => { setCreating(false); await load(); }} />}
+    </div>
+  );
+}
+
+function FormModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [form, setForm] = useState({ name: "", slug: "", submitLabel: "Send" });
+  const [included, setIncluded] = useState<Record<string, { on: boolean; required: boolean }>>({
+    firstName: { on: true, required: true },
+    lastName: { on: true, required: true },
+    email: { on: true, required: true },
+    phone: { on: false, required: false },
+    company: { on: true, required: false },
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const fields = LEAD_FORM_FIELDS.filter((f) => included[f.key]?.on).map((f) => ({ key: f.key, label: f.label, type: f.type, required: !!included[f.key]?.required }));
+    try {
+      await post("/api/lead-forms", { ...form, slug: form.slug || slugify(form.name), fields });
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="New lead-capture form">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Form name" required><input className="input" placeholder="e.g. Request a demo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+          <Field label="Slug"><input className="input font-mono" placeholder="request-a-demo" value={form.slug} onChange={(e) => setForm({ ...form, slug: slugify(e.target.value) })} /><span className="text-[11px] text-slate-600">auto-generated from the name</span></Field>
+        </div>
+        <Field label="Submit button"><input className="input" value={form.submitLabel} onChange={(e) => setForm({ ...form, submitLabel: e.target.value })} /></Field>
+        <Field label="Fields">
+          <div className="space-y-1.5">
+            {LEAD_FORM_FIELDS.map((f) => {
+              const inc = included[f.key];
+              return (
+                <div key={f.key} className="flex items-center gap-3 rounded-xl bg-ink-800/50 border border-white/[0.05] px-3 py-2">
+                  <input type="checkbox" checked={inc?.on} onChange={(e) => setIncluded((s) => ({ ...s, [f.key]: { ...s[f.key], on: e.target.checked } }))} className="size-4 accent-accent-500" />
+                  <span className="flex-1 text-sm text-slate-300">{f.label}</span>
+                  <label className={`flex items-center gap-1.5 text-xs ${inc?.on ? "text-slate-400" : "text-slate-700"}`}>
+                    <input type="checkbox" disabled={!inc?.on} checked={inc?.required} onChange={(e) => setIncluded((s) => ({ ...s, [f.key]: { ...s[f.key], required: e.target.checked } }))} className="size-3.5 accent-accent-500" />
+                    required
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        </Field>
+        {error && <div className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={submit} disabled={busy || !form.name.trim()}>{busy ? <Spinner className="size-4" /> : "Create form"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

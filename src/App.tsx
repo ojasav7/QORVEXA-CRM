@@ -11,6 +11,9 @@ import ActivitiesPage from "./pages/ActivitiesPage";
 import EventsPage from "./pages/EventsPage";
 import SettingsPage from "./pages/SettingsPage";
 import ImportPage from "./pages/ImportPage";
+import SegmentsPage from "./pages/SegmentsPage";
+import AccountHierarchyPage from "./pages/AccountHierarchyPage";
+import FormPage from "./pages/FormPage";
 
 export type FeatureState = {
   enabled: boolean;
@@ -100,10 +103,13 @@ export default function App() {
     <SessionCtx.Provider value={session}>
       <Routes>
         <Route path="/login" element={session.user ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/forms/:slug" element={<FormPage />} />
         <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Dashboard />} />
           <Route path="contacts" element={<ObjectPage type="contact" />} />
           <Route path="accounts" element={<ObjectPage type="account" />} />
+          <Route path="accounts/hierarchy" element={<AccountHierarchyPage />} />
+          <Route path="segments" element={<SegmentsPage />} />
           <Route path="leads" element={<ObjectPage type="lead" />} />
           <Route path="deals" element={<DealsPage />} />
           <Route path="activities" element={<ActivitiesPage />} />

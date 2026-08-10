@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Building2, Target, Briefcase, CheckSquare,
-  Activity, Settings, LogOut, Search, Menu, X, Upload, GitBranch,
+  Activity, Settings, LogOut, Search, Menu, X, Upload, GitBranch, ListFilter,
 } from "lucide-react";
 import { useSession, useFeature } from "../App";
 import { post } from "../lib/api";
@@ -17,6 +17,7 @@ const NAV = [
   { to: "/leads", label: "Leads", icon: Target },
   { to: "/deals", label: "Deals", icon: Briefcase },
   { to: "/activities", label: "Activities", icon: CheckSquare },
+  { to: "/segments", label: "Segments", icon: ListFilter },
   { to: "/events", label: "Events", icon: Activity },
 ];
 

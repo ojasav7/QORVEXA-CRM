@@ -15,12 +15,12 @@ Legend: ✅ Shipped · 🧱 Scaffolded (foundation exists) · ⬜ Planned
 | Custom fields (no-code, v1) | ✅ | `FieldDef` registry + Settings UI |
 | API (REST) + Webhooks | ✅ | `docs/05-api-reference.md`, Settings UI |
 | Audit trail (field-level diff) | ✅ | `lib/audit.ts` + `AuditLog` collection |
-| OAuth / SSO | ⬜ | Phase 14 (signed cookies now) |
-| Sandbox/staging, feature flags, data residency, backups, point-in-time restore | ⬜ | Schema-ready (`Organization.settings`), UI later |
+| OAuth / SSO | ✅ | API tokens + provider sign-in (`OAUTH_MOCK=1` dev mode); see ADR-005-A |
+| Sandbox/staging, feature flags, data residency, backups, point-in-time restore | ✅ | ADR-008/009 + amendments; env switcher, reset, promote; scheduled snapshots + retention |
 
-## Phase 1 — Core CRM ✅
+## Phase 1 — Core CRM ✅ **COMPLETE**
 
-Contacts, accounts, leads, deals (6-stage pipeline board with drag-drop), activities (tasks + notes), tags, ownership, duplicate detection & merge (detection ✅, merge UI ⬜), universal keyword search ✅ (semantic → Phase 8).
+Contacts, accounts, leads, deals (6-stage pipeline board with drag-drop), activities (tasks + notes), tags, ownership, duplicate detection & merge (detection ✅, **merge UI ✅** — per-field master/merge), universal keyword search ✅ (semantic → Phase 8). **Phase 1 finishing:** lead routing (admin round-robin pool + manual override, ADR-010) ✅ · account hierarchy UI (cycle-guarded tree page) ✅ · dynamic segments (criteria builder + live counts) ✅ · public lead-capture forms (honeypot + rate limit + no-leak dedupe, ADR-012) ✅. See `docs/12-phase1-build-report.md`.
 
 ## Phase 2 — Communication Core 🧱
 

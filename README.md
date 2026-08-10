@@ -11,7 +11,7 @@
 
 # QORVEXA CRM
 
-**The intelligent operating system for business** — Phase 0 (platform backbone) **complete** + Phase 1 (core CRM) built and running.
+**The intelligent operating system for business** — Phases 0–1 **complete** (platform backbone + full core CRM) and running.
 
 </div>
 
@@ -22,8 +22,12 @@
 A production-shaped CRM implementing the architecture principles from `QORVEXAThe intelligent operating system for business.md`:
 
 - **Object + Relationship + Event model** — one generic CRUD engine powers every object type (contact, account, lead, deal, task, note). Add a type in `server/lib/registry.ts`, get full CRUD + events + audit + search for free.
-- **Event bus from Day 1** — every state change emits a persisted event (`deal.stage_changed`, `contact.created`, …) visible in the UI, auditable, and deliverable to webhooks.
+- **Event bus from Day 1** — every state change emits a persisted event (`deal.stage_changed`, `lead.routed`, `contact.created`, …) visible in the UI, auditable, and deliverable to webhooks.
 - **Field/record-level permissions from Day 1** — roles (`admin`/`manager`/`rep`) + per-record `visibility` + per-field read/write restrictions, enforced in the service layer (not just the UI).
+- **Lead routing** — admin-configured round-robin pool with manual override anytime (explicit `ownerId` always wins; `lead.routed` events with `mode`).
+- **Dynamic segments** — criteria builder with live member counts, computed on read.
+- **Public lead-capture forms** — embeddable, no-auth forms with honeypot + rate limiting; submissions create routed leads (`source: "Website"`).
+- **Account hierarchy + duplicate merge UI** — cycle-guarded parent/child tree page; pick two records and merge per-field.
 - **No-code object builder (v1)** — admins define custom fields per object type via the UI; values are stored per-record and rendered dynamically.
 - **Multi-tenant from Day 1** — every document carries `orgId`; isolation is enforced on every query.
 - **Audit trail** — every mutation is logged with a field-level diff (`before`/`after`/`changed`), the foundation for the Phase-15 Time Machine.
@@ -91,6 +95,7 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/09-spec-phase0-hardening.md](docs/09-spec-phase0-hardening.md) | The spec that drove Phase 0 hardening — **implemented** (see docs/11) |
 | [docs/10-continuation-runbook.md](docs/10-continuation-runbook.md) | Hand-off pack + "continue here" prompt for a fresh session |
 | [docs/11-phase0-build-report.md](docs/11-phase0-build-report.md) | Phase 0 hardening + completion — what shipped, deviations, verification evidence |
+| [docs/12-phase1-build-report.md](docs/12-phase1-build-report.md) | Phase 1 completion — lead routing, hierarchy UI, segments, lead-capture forms, merge UI |
 
 ---
 

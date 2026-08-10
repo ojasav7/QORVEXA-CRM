@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Plus, Search, Pencil, Trash2, Download } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Plus, Search, Pencil, Trash2, Download, Network, GitMerge } from "lucide-react";
 import { api, del, patch, post, downloadCsv, ApiError } from "../lib/api";
 import { OBJECT_META, type FieldSpec, type ObjectMeta } from "../lib/objects";
 import { Badge, EmptyState, Field, Modal, Spinner } from "../components/ui";
@@ -14,7 +14,10 @@ type Row = Record<string, any>;
 
 export default function ObjectPage({ type }: { type: string }) {
   const meta = OBJECT_META[type];
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [relationOptions, setRelationOptions] = useState<Record<string, { id: string; label: string }[]>>({});
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -45,6 +48,14 @@ export default function ObjectPage({ type }: { type: string }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     void api(`/api/fields/${type}`).then((d: any) => setFields({ core: d.core, custom: d.custom, permissions: d.permissions ?? [] })).catch(() => {});
+  }, [type]);
+
+  // Account hierarchy: parent-account options for the form (Phase 1).
+  useEffect(() => {
+    if (type !== "account") return;
+    void api<{ items: { id: string; name: string }[] }>("/api/accounts?pageSize=500")
+      .then((d) => setRelationOptions({ parentId: d.items.map((a) => ({ id: a.id, label: a.name })) }))
+      .catch(() => {});
   }, [type]);
 
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId]);
@@ -100,6 +111,12 @@ export default function ObjectPage({ type }: { type: string }) {
             </select>
           )}
           <button className="btn-ghost" onClick={exportCsv} title="Export visible records as CSV"><Download className="size-4" /> Export CSV</button>
+          {type === "account" && (
+            <button className="btn-ghost" onClick={() => navigate("/accounts/hierarchy")} title="Account hierarchy tree"><Network className="size-4" /> Hierarchy</button>
+          )}
+          {["contact", "account", "lead"].includes(type) && (
+            <button className="btn-ghost" onClick={() => setMergeOpen(true)} title="Merge duplicate records"><GitMerge className="size-4" /> Merge duplicates</button>
+          )}
           <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New {meta.label}</button>
         </div>
       </div>
@@ -153,6 +170,7 @@ export default function ObjectPage({ type }: { type: string }) {
           meta={meta}
           fields={fields}
           permMap={permMap}
+          relationOptions={relationOptions}
           initial={editing}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={async (row) => {
@@ -168,7 +186,98 @@ export default function ObjectPage({ type }: { type: string }) {
       {selected && !creating && !editing && (
         <DetailPanel row={selected} meta={meta} fields={fields} visibleColumns={visibleColumns} onClose={closeDetail} onEdit={() => setEditing(selected)} onDeleted={async () => { closeDetail(); await load(); }} />
       )}
+
+      {/* Duplicate merge (Phase 1) */}
+      {mergeOpen && (
+        <MergeModal
+          type={type}
+          rows={rows}
+          onClose={() => setMergeOpen(false)}
+          onDone={async () => { setMergeOpen(false); await load(); }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Duplicate merge (Phase 1) ────────────────────────────────────────────────
+function MergeModal({ type, rows, onClose, onDone }: { type: string; rows: Row[]; onClose: () => void; onDone: () => void }) {
+  const [masterId, setMasterId] = useState(rows[0]?.id ?? "");
+  const [mergeId, setMergeId] = useState(rows[1]?.id ?? "");
+  const [choices, setChoices] = useState<Record<string, "master" | "merge">>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const master = rows.find((r) => r.id === masterId);
+  const merge = rows.find((r) => r.id === mergeId);
+  const meta = OBJECT_META[type];
+  const fields = meta.formFields;
+
+  const submit = async () => {
+    if (!masterId || !mergeId || masterId === mergeId) {
+      setError("Pick two different records to merge.");
+      return;
+    }
+    setBusy(true); setError(null);
+    try {
+      await post(`/api/merge`, { objectType: type, masterId, mergeId, fieldChoices: choices });
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Merge failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const winner = (k: string) => choices[k] === "merge" ? merge?.[k] : master?.[k] ?? merge?.[k];
+
+  return (
+    <Modal open onClose={onClose} title={`Merge duplicate ${meta.plural.toLowerCase()}`} wide>
+      <p className="mb-4 text-sm text-slate-500">
+        Choose the <span className="text-slate-300">master</span> (kept) and the record to merge into it (deleted). Per-field you can pick which value wins — master by default.
+      </p>
+      <div className="mb-4 grid grid-cols-2 gap-3">
+        <Field label="Master (kept)">
+          <select className="input" value={masterId} onChange={(e) => setMasterId(e.target.value)}>
+            {rows.map((r) => <option key={r.id} value={r.id}>{r.name ?? `${r.firstName} ${r.lastName}`.trim()}</option>)}
+          </select>
+        </Field>
+        <Field label="Merge into master (deleted)">
+          <select className="input" value={mergeId} onChange={(e) => setMergeId(e.target.value)}>
+            {rows.map((r) => <option key={r.id} value={r.id}>{r.name ?? `${r.firstName} ${r.lastName}`.trim()}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <div className="max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-xl border border-white/[0.06]">
+        {fields.map((k) => {
+          const m = master?.[k];
+          const g = merge?.[k];
+          if (m === undefined && g === undefined) return null;
+          return (
+            <div key={k} className="flex items-center gap-3 px-4 py-3">
+              <span className="w-28 shrink-0 text-xs uppercase tracking-wider text-slate-500">{fieldLabel([], k)}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-300">{String(m ?? "—")}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-600">{String(g ?? "—")}</span>
+              <div className="flex shrink-0 gap-1">
+                {([["master", "Master"], ["merge", "Merge"]] as const).map(([v, l]) => (
+                  <button key={v} onClick={() => setChoices((c) => ({ ...c, [k]: v }))}
+                    className={`chip transition-colors ${(choices[k] ?? "master") === v ? "bg-accent-500/25 text-accent-300 border border-accent-500/30" : "bg-white/[0.06] text-slate-400 hover:text-white"}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {error && <div className="mt-4 rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
+      <div className="mt-6 flex justify-end gap-2">
+        <button className="btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn-primary" onClick={submit} disabled={busy}>{busy ? <Spinner className="size-4" /> : "Merge records"}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -192,10 +301,11 @@ function statusTone(s: string): string {
   return map[s] ?? "default";
 }
 
-function ObjectForm({ meta, fields, permMap, initial, onClose, onSaved }: {
+function ObjectForm({ meta, fields, permMap, relationOptions, initial, onClose, onSaved }: {
   meta: ObjectMeta;
   fields: { core: FieldSpec[]; custom: any[] };
   permMap: Record<string, FieldPermInfo>;
+  relationOptions?: Record<string, { id: string; label: string }[]>;
   initial: Row | null;
   onClose: () => void;
   onSaved: (row: Row) => void;
@@ -230,11 +340,12 @@ function ObjectForm({ meta, fields, permMap, initial, onClose, onSaved }: {
   const allFields = [...meta.formFields.map((k) => fields.core.find((f) => f.key === k)!).filter(Boolean), ...fields.custom]
     .filter((f) => ROLE_WRITE(permMap[f.key]));
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const relOptions = relationOptions ?? {};
 
   return (
     <Modal open onClose={onClose} title={`${initial ? "Edit" : "New"} ${meta.label}`} wide>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {allFields.map((f) => <FormControl key={f.key} spec={f} value={form[f.key]} onChange={(v) => set(f.key, v)} />)}
+        {allFields.map((f) => <FormControl key={f.key} spec={f} value={form[f.key]} onChange={(v) => set(f.key, v)} options={relOptions[f.key]} />)}
       </div>
       {error && <div className="mt-4 rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
       <div className="mt-6 flex justify-end gap-2">
@@ -245,7 +356,17 @@ function ObjectForm({ meta, fields, permMap, initial, onClose, onSaved }: {
   );
 }
 
-function FormControl({ spec, value, onChange }: { spec: FieldSpec; value: any; onChange: (v: any) => void }) {
+function FormControl({ spec, value, onChange, options }: { spec: FieldSpec; value: any; onChange: (v: any) => void; options?: { id: string; label: string }[] }) {
+  if (options) {
+    return (
+      <Field label={spec.label}>
+        <select className="input" value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+          <option value="">— none —</option>
+          {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+      </Field>
+    );
+  }
   if (spec.type === "select") {
     return (
       <Field label={spec.label} required={spec.required}>

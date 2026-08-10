@@ -56,6 +56,7 @@ export const OBJECTS: ObjectDef[] = [
     icon: "building",
     fields: [
       { key: "name", label: "Name", type: "text", required: true, searchable: true, list: true },
+      { key: "parentId", label: "Parent account", type: "text" }, // account hierarchy (Phase 1)
       { key: "industry", label: "Industry", type: "select", options: ["Technology", "Finance", "Healthcare", "Retail", "Manufacturing", "Education", "Other"], searchable: true, list: true },
       { key: "website", label: "Website", type: "url", searchable: true, list: true },
       { key: "phone", label: "Phone", type: "text", searchable: true, list: true },

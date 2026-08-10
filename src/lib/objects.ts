@@ -36,7 +36,7 @@ export const OBJECT_META: Record<string, ObjectMeta> = {
     path: "/accounts",
     titleField: "name",
     columns: ["name", "industry", "tier", "employees", "website"],
-    formFields: ["name", "industry", "tier", "employees", "website", "phone"],
+    formFields: ["name", "parentId", "industry", "tier", "employees", "website", "phone"],
   },
   lead: {
     type: "lead",

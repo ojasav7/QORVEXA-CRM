@@ -10,13 +10,13 @@
 
 | Metric | Value |
 |---|---|
-| Phases complete | **1 / 16** (Phase 0 — Platform Foundations ✅ 100%) |
-| Phases substantially built | 1 (Phase 1 ~85%) |
+| Phases complete | **2 / 16** (Phase 0 — Platform Foundations ✅ 100%, Phase 1 — Core CRM ✅ 100%) |
+| Phases substantially built | 0 |
 | Phases partially built | 2 (Phase 6 substrate, Phase 8 substrate) |
 | Phases not started | 12 |
-| Current focus | Finishing Phase 1 (lead routing, hierarchy UI, segments, lead-capture forms) |
+| Current focus | Phase 2-lite (multi-pipeline admin + email templates) |
 
-**Phase 0 is complete** — every blueprint item for the platform backbone is shipped and verified: object model, event bus, RBAC, audit, custom fields, sandbox environments, feature flags, CSV import/export with merge, scheduled backups, field-level permissions, data residency config, and OAuth (API tokens + provider SSO). The foundation every later phase builds on is solid and the object model means adding features is cheap.
+**Phases 0 and 1 are complete.** The platform backbone (object model, event bus, RBAC, audit, custom fields, sandboxes, feature flags, import/export with merge, scheduled backups, field-level permissions, data residency, OAuth tokens + SSO) and the full core CRM (lead routing, account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI) are all shipped and live-verified. The object model means every later phase starts from a solid, extensible base.
 
 ## Phase-by-phase status
 
@@ -45,23 +45,20 @@
 
 ---
 
-### Phase 1 — Core CRM 🧱 (~85%) — *est. 2–3 days to finish*
+### Phase 1 — Core CRM ✅ **COMPLETE (100%)**
 
-**Shipped ✅**
+**Blueprint items verified shipped ✅**
 - Contacts & accounts with custom fields, tags, ownership
-- Account hierarchy (`parentId` field)
-- Lead capture via API + CSV import + manual UI
+- **Lead routing** — admin-configured round-robin pool (`Organization.settings.leadRouting`, Settings → Lead routing); explicit `ownerId` always wins (create + PATCH reassign, admin/manager only); `lead.routed` events with `mode` (ADR-010)
+- **Account hierarchy UI** — `parentId` + cycle guard (400 on cycle/self-parent), `parentId_label` hydration, Accounts → Hierarchy tree page, parent picker in the form
+- Lead capture via API + CSV import + manual UI + **public lead-capture forms** (embeddable, no-auth: honeypot + per-IP rate limit + no-leak duplicate handling; submissions create routed leads with `source: "Website"` + `lead.captured`; Settings → Lead capture embed snippet) (ADR-012)
 - Basic lead scoring (`score` 0–100)
 - Deal pipeline (6 stages) with drag-drop board, probability auto-derivation
 - Activities: tasks, notes, reminders (due dates), timeline on record detail
-- Duplicate detection (email/name) + global keyword search
+- Duplicate detection (email/name) + global keyword search + **duplicate merge UI** (`POST /api/merge`, per-field master/merge choice, `<type>.merged` `via: "records"`) (ADR-011)
+- **Segments** — dynamic lists as a first-class entity: `Segment` model + criteria builder/compiler, live member counts, `/api/segments` CRUD + `/members`, Segments page with filter builder (ADR-003 pattern)
 
-**Left ⬜**
-- Lead capture forms (public embeddable forms)
-- Lead routing (round-robin / territory)
-- Segments as a first-class entity (currently tag-based only)
-- Duplicate merge UI
-- Account hierarchy UI (field exists, no parent/child view)
+**Verified by:** `npm run typecheck` + `npm run build` green; live curl smoke tests for round-robin cycling (full-id assertions), explicit-owner precedence, manual reassign, rep 403, public-form dedupe/routing/honeypot, segment counts + bad-field 400, hierarchy cycle guards, and merge field choices — plus three real bugs caught and fixed during verification (see `docs/12-phase1-build-report.md`).
 
 ---
 
@@ -153,7 +150,7 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Op
 
 1. ~~**Phase 0 hardening**~~ — **done** (spec in `docs/09-spec-phase0-hardening.md`, report in `docs/11-phase0-build-report.md`): sandbox envs, feature flags, CSV merge UI, backup/restore.
 2. ~~**Phase 0 completion**~~ — **done** (addendum in `docs/11-phase0-build-report.md` §9): CSV export, field-level permissions, data residency config, scheduled backups + retention, OAuth tokens + SSO. Phase 0 is **100% complete**.
-3. **Finish Phase 1** (~2–3 days): lead routing + account hierarchy UI + segments + public lead-capture forms — cheap wins that close the current phase.
+3. ~~**Finish Phase 1**~~ — **done** (report in `docs/12-phase1-build-report.md`): lead routing (round-robin + manual override), account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI. Phase 1 is **100% complete**.
 3. **Phase 2-lite** (~3–4 days): multi-pipeline admin + email templates — the object model makes this the cheapest *new* capability.
 4. **Phase 3-lite** (~8–10 days): workflow engine — unlocks `task.completed`, notifications, and every automation-dependent phase after it.
 

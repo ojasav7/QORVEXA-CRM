@@ -10,6 +10,7 @@ import { emitEvent } from "./events";
 import { assertCanAccess, listConditions, type AccessUser } from "./access";
 import { getObjectDef, stageProbability, type ObjectDef } from "./registry";
 import { fieldPermMap, canWrite, maskRow, type FieldPerm } from "./field-permissions";
+import { assertAccountParentExists, assertSafeAccountParent } from "./accounts";
 
 // ── Type helpers ─────────────────────────────────────────────────────────────
 type PrismaModel = any; // a Prisma model delegate (contact, account, ...)
@@ -21,6 +22,10 @@ export type ObjectConfig = {
   eventPrefix?: string; // e.g. "contact" → contact.created (defaults to type)
   relations?: { field: string; type: string }[]; // display joins
   ownerField?: string; // column holding the creator/owner (default "ownerId"; notes use "authorId")
+  /** Optional owner assignment (Phase 1 lead routing) — runs when the caller didn't specify one. */
+  assignOwner?: (user: AccessUser, input: Record<string, unknown>) => Promise<string | null | undefined>;
+  /** Emit `<eventPrefix>.routed` when assignOwner assigned a different owner than the caller. */
+  routedEvent?: boolean;
 };
 
 const configs: Record<string, ObjectConfig> = {};
@@ -135,6 +140,24 @@ export function eventPrefixFor(type: string): string {
   return configs[type]?.eventPrefix ?? type;
 }
 
+// ── Owner assignment helpers (Phase 1) ───────────────────────────────────────
+// The owner column (ownerId — or authorId for notes) is caller-settable only by
+// admins/managers; reps get routing or themselves. It must be pulled OUT of the
+// input before splitFields, which would otherwise drop it as an unknown key.
+function explicitOwnerOf(input: Record<string, unknown>, ownerField: string, user: AccessUser): string | undefined {
+  const raw = input[ownerField];
+  if (typeof raw !== "string" || raw.trim() === "") return undefined;
+  if (user.role !== "admin" && user.role !== "manager") {
+    throw forbidden(`Only admins and managers can assign a record owner`);
+  }
+  return raw.trim();
+}
+
+function omitKey(input: Record<string, unknown>, key: string): Record<string, unknown> {
+  const { [key]: _drop, ...rest } = input;
+  return rest;
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export type ObjectService = {
@@ -205,7 +228,11 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
 
   async function create(user: AccessUser, input: Record<string, unknown>, ip?: string | null) {
     const environment = user.environment ?? "production";
-    const { coreData, custom } = await splitFields(def, { ...input, orgId: user.orgId }, user);
+    const ownerField = cfg.ownerField ?? "ownerId";
+    // Manual owner override (Phase 1): admins/managers may pick an owner on
+    // create; reps cannot — they get routing or default to themselves.
+    const explicitOwner = explicitOwnerOf(input, ownerField, user);
+    const { coreData, custom } = await splitFields(def, { ...omitKey(input, ownerField), orgId: user.orgId }, user);
     const dup = await findDuplicate(cfg.type, cfg, user.orgId, environment, coreData);
     if (dup) {
       const existing = await modelOf(cfg.type).findUnique({ where: { id: dup.id } });
@@ -213,16 +240,26 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
     }
 
     const stage = coreData.stage ?? (def.type === "opportunity" ? "qualified" : undefined);
-    const ownerField = cfg.ownerField ?? "ownerId";
+    // Phase 1 lead routing: an explicit owner always wins; otherwise the
+    // registered assignOwner hook (e.g. round-robin pool) may pick one.
+    let routedOwner: string | null = null;
+    if (!explicitOwner && cfg.assignOwner) {
+      const routed = await cfg.assignOwner(user, coreData);
+      if (routed && routed !== user.id) routedOwner = routed;
+    }
     const data: Record<string, unknown> = {
       ...coreData,
       orgId: user.orgId,
       environment,
-      [ownerField]: (coreData.ownerId as string) ?? user.id,
+      [ownerField]: explicitOwner ?? routedOwner ?? user.id,
       visibility: (input.visibility as string) ?? "org",
       tags: Array.isArray(input.tags) ? input.tags : [],
       custom,
     };
+    // Account hierarchy: validate parentId before persisting (create).
+    if (def.type === "account" && coreData.parentId !== undefined) {
+      await assertAccountParentExists(user.orgId, environment, coreData.parentId as string | undefined);
+    }
     // ownerId is the generic alias; when the real column differs (Note → authorId)
     // remove the alias so Prisma doesn't see an unknown field.
     if (ownerField !== "ownerId") delete data.ownerId;
@@ -251,6 +288,17 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
       actorId: user.id,
       payload: { [cfg.type]: row },
     });
+    if (cfg.routedEvent && routedOwner) {
+      await emitEvent({
+        orgId: user.orgId,
+        environment,
+        type: `${cfg.eventPrefix}.routed`,
+        entity: cfg.type,
+        entityId: row.id,
+        actorId: user.id,
+        payload: { from: user.id, to: routedOwner, mode: "round-robin" },
+      });
+    }
     return (await hydrateThenMask([row], user))[0];
   }
 
@@ -262,8 +310,13 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
     // PATCH semantics: validate required fields against the merged state
     // (existing values + patch), not the patch alone.
     const environment = user.environment ?? "production";
+    const ownerField = cfg.ownerField ?? "ownerId";
+    // Manual reassignment (Phase 1) — admins/managers may move a record to a
+    // new owner at any time; reps can't (routing owns that for them).
+    const explicitOwner = explicitOwnerOf(input, ownerField, user);
+    const ownerChanged = explicitOwner !== undefined && String(before[ownerField] ?? "") !== explicitOwner;
     const { coreData, custom } = await splitFields(def, {
-      ...input,
+      ...omitKey(input, ownerField),
       ...Object.fromEntries(def.fields.filter((f) => f.required).map((f) => [f.key, before[f.key]])),
       orgId: user.orgId,
     }, user);
@@ -274,7 +327,13 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
     const dup = await findDuplicate(cfg.type, cfg, user.orgId, environment, merged, id);
     if (dup) throw badRequest(`A ${def.label.toLowerCase()} with this ${dup.field} already exists`);
 
+    // Account hierarchy: reject parent changes that would create a cycle.
+    if (def.type === "account" && coreData.parentId !== undefined && String(coreData.parentId) !== String(before.parentId ?? "")) {
+      await assertSafeAccountParent(user.orgId, environment, id, coreData.parentId as string | undefined);
+    }
+
     const patch: Record<string, unknown> = { ...coreData };
+    if (explicitOwner) patch[ownerField] = explicitOwner;
     if (input.tags !== undefined) patch.tags = Array.isArray(input.tags) ? input.tags : [];
     if (input.visibility !== undefined) patch.visibility = input.visibility;
     if (Object.keys(custom).length) patch.custom = { ...((before.custom as object) ?? {}), ...custom };
@@ -292,12 +351,23 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
       actorId: user.id,
       entity: cfg.type,
       entityId: id,
-      action: isStageChange ? "stage_changed" : "update",
+      action: isStageChange ? "stage_changed" : ownerChanged ? "owner_changed" : "update",
       before: before as Record<string, unknown>,
       after: after as Record<string, unknown>,
       ip,
     });
 
+    if (cfg.routedEvent && ownerChanged) {
+      await emitEvent({
+        orgId: user.orgId,
+        environment,
+        type: `${cfg.eventPrefix}.routed`,
+        entity: cfg.type,
+        entityId: id,
+        actorId: user.id,
+        payload: { from: before[ownerField] ?? null, to: explicitOwner, mode: "manual" },
+      });
+    }
     if (isStageChange) {
       await emitEvent({
         orgId: user.orgId,

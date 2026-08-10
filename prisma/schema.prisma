@@ -233,6 +233,45 @@ model ApiToken {
   @@index([orgId])
 }
 
+// ── Phase 1 · Platform entities ────────────────────────────────────────────────
+// Segments (dynamic lists, Phase 1) and public lead-capture forms (Phase 1) are
+// platform entities like FieldDef/FeatureFlag — org-scoped metadata the generic
+// object service does not manage (membership + capture have their own semantics).
+
+model Segment {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  name        String
+  description String?
+  objectType  String // contact | account | lead | opportunity | task
+  criteria    Json     @default("{}") // { filters: [{ field, op, value }] } — dynamic membership
+  active      Boolean  @default(true)
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// Public lead-capture forms (Phase 1) — an org publishes a form slug; the public
+// page (no auth) POSTs to /api/public/forms/:slug/submit which creates a routed
+// lead. `fields` = the subset of lead core fields the form exposes.
+model LeadForm {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  name        String
+  slug        String // url-safe, unique per org
+  fields      Json     @default("[]") // [{ key, label, required, type }]
+  submitLabel String   @default("Send")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+}
+
 // ── Phase 1 · Core CRM objects ────────────────────────────────────────────────
 // All objects share the blueprint's standard shape (docs/02-data-model.md):
 // core typed fields + `custom` Json for registry-defined fields + `tags`.

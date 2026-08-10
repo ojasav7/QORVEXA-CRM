@@ -92,8 +92,8 @@ Applies to `/api/contacts`, `/api/accounts`, `/api/leads`, `/api/opportunities`,
 |---|---|---|
 | GET | `/api/:type` | Query: `page`, `pageSize` (≤100), `q` (keyword), `stage`, `status`, `ownerId`, `sort`. Returns `{ items, total }` scoped by role + visibility. |
 | GET | `/api/:type/:id` | Single record, `*Id_label` display names attached for relations (e.g. `accountId_label`). |
-| POST | `/api/:type` | Create. Validates core + custom fields, duplicate check. Emits `<type>.created`. Returns 201 + row. |
-| PATCH | `/api/:type/:id` | Partial update (PATCH semantics — required fields validated against merged state). Stage changes on deals auto-set `probability` and emit `deal.stage_changed`. |
+| POST | `/api/:type` | Create. Validates core + custom fields, duplicate check. Emits `<type>.created`. Returns 201 + row. **Owner:** an explicit `ownerId` (admin/manager only) always wins; otherwise leads are round-robin routed (when configured); otherwise the creator becomes owner. |
+| PATCH | `/api/:type/:id` | Partial update (PATCH semantics — required fields validated against merged state). Stage changes on deals auto-set `probability` and emit `deal.stage_changed`. `ownerId` (admin/manager only) reassigns the owner and emits `lead.routed { mode: "manual" }` for leads. |
 | DELETE | `/api/:type/:id` | Emits `<type>.deleted`. |
 
 ### Example: create a deal
@@ -189,6 +189,49 @@ Webhooks are **per-environment** — a hook created in `sandbox` only receives e
 |---|---|---|
 | GET | `/api/org` | `{ org }` |
 | PATCH | `/api/org` | Admin. `{ name?, settings? }` (settings = JSON; locale/timezone/feature flags). |
+
+## Lead routing (Phase 1)
+
+Config lives in `Organization.settings.leadRouting`: `{ mode: "manual" | "round-robin", pool: string[] (user ids), cursor }`. In `round-robin` mode, new leads **without an explicit owner** cycle through the ACTIVE pool members (disabled users skipped; cursor persisted across restarts). Admins retain full authority — an explicit `ownerId` on create or PATCH always wins (reps get a 403 trying to set one).
+
+| Method | Path | Notes |
+|---|---|---|
+| PATCH | `/api/org` | Admin. `{ settings: { leadRouting: { mode, pool, cursor } } }` — configure the pool & mode (Settings → Lead routing). |
+
+## Segments (Phase 1)
+
+Dynamic lists — membership is computed **on read** against the segment's criteria (org + environment + visibility scoped), so counts stay live. Criteria: `{ filters: [{ field, op, value }] }` with `op ∈ eq, ne, gt, gte, lt, lte, contains, in, is_set`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/segments` | List with live `memberCount`. Any authenticated user. |
+| POST | `/api/segments` | Admin. `{ name, objectType, criteria?, active? }`. Emits `segment.created`. |
+| GET | `/api/segments/:id/members` | Paginated membership (`?page=&pageSize=`) with `ownerName` attached. |
+| PATCH | `/api/segments/:id` | Admin. Partial update (PATCH semantics — criteria/active only change when sent). |
+| DELETE | `/api/segments/:id` | Admin. Emits `segment.deleted`. |
+
+## Lead-capture forms (Phase 1)
+
+Admin-configured public forms that create **routed** leads in the org's production env. Form `fields` must be real lead core fields. Public endpoints are deliberately unauthenticated, protected by a honeypot field + a per-IP rate limit (10/min); duplicate emails are rejected without leaking that the lead exists.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/lead-forms` | Admin | List forms. |
+| POST | `/api/lead-forms` | Admin | `{ name, slug, fields: [{ key, label, required?, type? }], submitLabel?, active? }`. Emits `leadform.created`. |
+| PATCH | `/api/lead-forms/:id` | Admin | Partial update (PATCH semantics). |
+| DELETE | `/api/lead-forms/:id` | Admin | Emits `leadform.deleted`. |
+| GET | `/api/public/forms/:slug` | **none** | Public config `{ name, fields, submitLabel }` — 404/400 when inactive. |
+| POST | `/api/public/forms/:slug/submit` | **none** | `{ firstName, lastName, email, phone?, company?, company_website? (honeypot) }`. Creates a lead (`source: "Website"`) → `{ ok, duplicate, leadId? }`. Duplicate email → `{ ok: true, duplicate: true }` (no existence leak). Emits `lead.captured` + routing events. |
+
+**Embed:** point any page/form at `POST /api/public/forms/<slug>/submit` — the Settings → Lead capture tab shows a ready-to-paste snippet.
+
+## Duplicate merge (Phase 1)
+
+Merges two records of the same type into a master, choosing per-field which record wins.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/merge` | `{ objectType, masterId, mergeId, fieldChoices? }` — `fieldChoices: { [field]: "master" | "merge" }` (default: master wins all). The merge record is deleted; non-conflicting fields come from the master unless overridden. Emits `<type>.merged { via: "records" }` + audit. UI: pick-two checkboxes on list pages. |
 
 ## Status codes
 

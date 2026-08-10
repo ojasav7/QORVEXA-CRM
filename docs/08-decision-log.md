@@ -24,6 +24,9 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 | ADR-005-A | OAuth (tokens + provider SSO) brought forward to Phase 0 | Accepted |
 | ADR-006-A | Field-level permissions shipped in Phase 0 (not Phase 14) | Accepted |
 | ADR-009-A | Scheduled snapshots + retention pruning added | Accepted |
+| ADR-010 | Lead routing = admin-configured round-robin pool, explicit owner always wins | Accepted |
+| ADR-011 | Duplicate merge = master/merge with per-field choices | Accepted |
+| ADR-012 | Public lead forms = unauthenticated + honeypot + rate limit + no-leak dedupe | Accepted |
 
 ---
 
@@ -200,3 +203,52 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 **Consequences:**
 - (+) Unattended backups with a retention policy — no human dependency.
 - (−) In-process `setInterval` — resets on deploy/restart and doesn't survive multi-instance hosting (fine for Phase 0; a queue-based cron lands with Phase 3 infrastructure).
+
+---
+
+## Amendments (2026-08-10 — Phase 1 completion)
+
+> Phase 1 finishing shipped lead routing, the account-hierarchy UI, first-class segments, public lead-capture forms, and the duplicate-merge UI. The user chose **admin-authoritative routing with round-robin** and asked for the merge UI to be included.
+
+## ADR-010 · Lead routing — admin round-robin pool, explicit owner wins
+
+**Status:** Accepted
+
+**Context:** New leads need an owner. The user chose: "full authority to admin whom he can assign, and also give all the algorithms required like round robin."
+
+**Decision:** Routing config lives in `Organization.settings.leadRouting` (`{ mode: "manual" | "round-robin", pool, cursor }`). In `round-robin` mode the service's `assignOwner` hook cycles new leads through the pool's **active** users (inactive skipped), persisting the cursor so rotation survives restarts. Explicit `ownerId` on create **always** wins over routing (and does not consume a slot); PATCH `ownerId` reassigns at any time — both restricted to `admin`/`manager` (reps get 403; they receive routing or default to themselves). Owner changes emit `lead.routed` with `mode: "round-robin"` or `"manual"`.
+
+**Consequences:**
+- (+) Blueprint's "routing/territory" (Phase 1) exists in a simple, admin-controlled form; round-robin is the first algorithm, more plug in behind the same `assignOwner` hook.
+- (+) Manual override is a first-class operation (audited + evented), not a DB edit.
+- (−) No territory/rule-based routing yet — the hook is the extension point (Phase 12 field ops).
+
+## ADR-011 · Duplicate merge — master/merge with per-field choices
+
+**Status:** Accepted
+
+**Context:** Import already merged by field; the user asked for a UI to merge two duplicate records directly.
+
+**Decision:** `POST /api/merge` takes `{ objectType, masterId, mergeId, fieldChoices? }`. Non-conflicting fields come from the master unless `fieldChoices` picks the merge record's value; the merge record is deleted; `<type>.merged` (with `via: "records"`) + audit rows are written. The UI surfaces two selectable records on list pages with a per-field picker.
+
+**Consequences:**
+- (+) Destructive operation with an explicit, reviewable choice per field — no blind field-merge.
+- (+) Same event family as import-merge (`via` disambiguates provenance).
+- (−) Merge is pairwise v1; n-way dedupe workflows are Phase 7 CDP scope.
+
+## ADR-012 · Public lead forms — unauthenticated by design, hardened
+
+**Status:** Accepted
+
+**Context:** Lead-capture forms must be embeddable on external sites — they cannot require a session. Abusers will find them.
+
+**Decision:** Public endpoints (`GET/POST /api/public/forms/:slug`) are unauthenticated. Protections: a hidden honeypot field (`company_website`) that silently swallows bots, an in-memory per-IP rate limit (10/min), slug-scoped lookup, and duplicate-email handling that reports `{ ok: true, duplicate: true }` **without leaking whether the lead exists**. Submissions act as a system actor (the form id) in the org's production env, so org field-permission restrictions never block capture; created leads go through normal duplicate detection + routing.
+
+**Consequences:**
+- (+) Embeddable anywhere, works without auth, and abuse is mitigated cheaply.
+- (−) In-memory rate limit resets on restart and is per-instance (fine for Phase 1; a shared limiter lands with Phase 3 infrastructure).
+- (−) No CAPTCHA/email verification yet — revisit if spam volume demands it.
+
+## Engineering note · Zod `.default()` leaks through `.partial()` on PATCH
+
+Zod applies `.default(...)` even when a schema is used via `.partial()` — so a PATCH that omits a defaulted key silently resets it (we hit this on forms/segments/custom fields: a rename wiped `submitLabel`, `criteria`, `required`). **Rule going forward:** PATCH-facing schemas carry **no** `.default()`; defaults are applied explicitly at the create endpoint (`input.x ?? default`).
