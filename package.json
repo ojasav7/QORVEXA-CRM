@@ -1,0 +1,49 @@
+{
+  "name": "qorvexa-crm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "QORVEXA — the intelligent operating system for business. Phase 0 (platform backbone) + Phase 1 (core CRM).",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite",
+    "build": "node scripts/build.mjs",
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "backfill:env": "tsx server/scripts/backfill-environment.ts",
+    "seed": "tsx server/seed.ts",
+    "mongo:up": "docker compose up -d mongo",
+    "mongo:down": "docker compose down"
+  },
+  "dependencies": {
+    "@prisma/client": "6",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "lucide-react": "^1.29.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.1.2",
+    "prisma": "6",
+    "tailwindcss": "^4.2.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.14"
+  }
+}

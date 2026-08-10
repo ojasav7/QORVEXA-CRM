@@ -1,0 +1,30 @@
+# Secrets — never commit these
+.env
+.env.local
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+.venv/
+venv/
+*.pyc
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Backup snapshots (ADR-009 archives — recreated on demand)
+backups/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

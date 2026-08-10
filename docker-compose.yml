@@ -1,0 +1,33 @@
+# Local development MongoDB for QORVEXA CRM.
+# Runs as a single-node replica set (Prisma requires transactions/replica set).
+# Usage:  npm run mongo:up    (starts mongo on localhost:27017)
+#         npm run mongo:down  (stops it)
+services:
+  mongo:
+    image: mongo:7
+    container_name: qorvexa-mongo
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - qorvexa-mongo-data:/data/db
+
+  # One-shot initializer: waits for Mongo, then initiates the replica set.
+  mongo-init:
+    image: mongo:7
+    container_name: qorvexa-mongo-init
+    depends_on:
+      - mongo
+    restart: "no"
+    entrypoint: >
+      bash -c "
+      echo 'Waiting for Mongo to be ready…';
+      until mongosh --host mongo --quiet --eval 'db.runCommand({ping:1}).ok' 2>/dev/null | grep -q 1; do sleep 1; done;
+      echo 'Initiating replica set rs0…';
+      mongosh --host mongo --quiet --eval 'try { rs.initiate({ _id: \"rs0\", members: [{ _id: 0, host: \"mongo:27017\" }] }) } catch (e) { print(e.message) }';
+      echo 'Replica set ready.'
+      "
+
+volumes:
+  qorvexa-mongo-data:

@@ -1,0 +1,146 @@
+// Seed script — the "cold-start onboarding data seeding" feature from the blueprint.
+// Usage:  npm run seed
+// Creates (idempotent, by fixed emails): demo org, users, accounts, contacts,
+// leads, opportunities across the pipeline, tasks, notes, custom fields.
+import bcrypt from "bcryptjs";
+import { PrismaClient } from "@prisma/client";
+import { db } from "./db";
+import { PIPELINE } from "./lib/registry";
+import { stageProbability } from "./lib/registry";
+import { emitEvent } from "./lib/events";
+
+const ORG_EMAIL = "admin@qorvexa.dev";
+const ORG_NAME = "Qorvexa Demo Inc";
+const ORG_SLUG = "qorvexa-demo";
+
+async function ensureUser(p: PrismaClient, orgId: string, name: string, email: string, role: string, title: string) {
+  const existing = await p.user.findUnique({ where: { email } });
+  if (existing) return existing;
+  return p.user.create({
+    data: { orgId, name, email, passwordHash: await bcrypt.hash("password123", 10), role, title },
+  });
+}
+
+async function main() {
+  const p = db();
+  console.log("Seeding QORVEXA demo data…");
+
+  let org = await p.organization.findUnique({ where: { slug: ORG_SLUG } });
+  if (!org) org = await p.organization.create({ data: { name: ORG_NAME, slug: ORG_SLUG, settings: {} } });
+  const orgId = org.id;
+
+  const admin = await ensureUser(p, orgId, "Ava Morgan", ORG_EMAIL, "admin", "Head of Revenue");
+  const priya = await ensureUser(p, orgId, "Priya Sharma", "priya@qorvexa.dev", "manager", "Sales Manager");
+  const leo = await ensureUser(p, orgId, "Leo Fischer", "leo@qorvexa.dev", "rep", "Account Executive");
+
+  // Custom fields demo (idempotent)
+  const existingField = await p.fieldDef.findFirst({ where: { orgId, objectType: "contact", key: "linkedin" } });
+  if (!existingField) {
+    await p.fieldDef.createMany({
+      data: [
+        { orgId, objectType: "contact", key: "linkedin", label: "LinkedIn", type: "url", order: 0 },
+        { orgId, objectType: "contact", key: "employeeSize", label: "Employee size", type: "number", order: 1 },
+        { orgId, objectType: "account", key: "annualRevenue", label: "Annual revenue", type: "number", order: 0 },
+      ],
+    });
+  }
+
+  // Accounts
+  const accountSeeds = [
+    { name: "Northwind Traders", industry: "Retail", tier: "Enterprise", employees: 4200, website: "northwind.example" },
+    { name: "Globex Corporation", industry: "Manufacturing", tier: "Mid-Market", employees: 850, website: "globex.example" },
+    { name: "Initech", industry: "Technology", tier: "SMB", employees: 120, website: "initech.example" },
+    { name: "Umbrella Labs", industry: "Healthcare", tier: "Enterprise", employees: 3100, website: "umbrella.example" },
+  ];
+  const accounts: Record<string, string> = {};
+  for (const a of accountSeeds) {
+    const existing = await p.account.findFirst({ where: { orgId, name: a.name } });
+    if (existing) {
+      accounts[a.name] = existing.id;
+      continue;
+    }
+    const created = await p.account.create({ data: { orgId, ownerId: leo.id, ...a, tags: ["key-account"], visibility: "org", custom: a.name === "Northwind Traders" ? { annualRevenue: 240_000_000 } : {} } });
+    accounts[a.name] = created.id;
+    await emitEvent({ orgId, type: "account.created", entity: "account", entityId: created.id, actorId: admin.id });
+  }
+
+  // Contacts
+  const contactSeeds = [
+    { firstName: "Elena", lastName: "Rodriguez", email: "elena@northwind.example", title: "VP Operations", account: "Northwind Traders", phone: "+1 212 555 0111" },
+    { firstName: "Marcus", lastName: "Chen", email: "marcus@globex.example", title: "CTO", account: "Globex Corporation", phone: "+1 415 555 0122" },
+    { firstName: "Sarah", lastName: "Kim", email: "sarah@initech.example", title: "Head of Growth", account: "Initech", phone: "+1 206 555 0133" },
+    { firstName: "David", lastName: "Okafor", email: "david@umbrella.example", title: "COO", account: "Umbrella Labs", phone: "+1 617 555 0144" },
+    { firstName: "Hana", lastName: "Tanaka", email: "hana@northwind.example", title: "Procurement Lead", account: "Northwind Traders", phone: "+1 212 555 0155" },
+  ];
+  for (const c of contactSeeds) {
+    const existing = await p.contact.findFirst({ where: { orgId, email: c.email } });
+    if (existing) continue;
+    const created = await p.contact.create({
+      data: {
+        orgId, ownerId: leo.id, accountId: accounts[c.account], firstName: c.firstName, lastName: c.lastName,
+        email: c.email, title: c.title, phone: c.phone, source: "Referral", status: "contacted",
+        tags: ["prospect"], visibility: "org", custom: { linkedin: `https://linkedin.com/in/${c.firstName.toLowerCase()}-${c.lastName.toLowerCase()}`, employeeSize: c.account === "Northwind Traders" ? 4200 : undefined },
+      },
+    });
+    await emitEvent({ orgId, type: "contact.created", entity: "contact", entityId: created.id, actorId: leo.id });
+  }
+
+  // Leads
+  const leadSeeds = [
+    { firstName: "Tom", lastName: "Baxter", email: "tom@brightstart.example", company: "Brightstart", source: "Website", score: 72 },
+    { firstName: "Ivy", lastName: "Nguyen", email: "ivy@nexuswave.example", company: "Nexuswave", source: "Cold outreach", score: 45 },
+    { firstName: "Omar", lastName: "Haddad", email: "omar@falconpeak.example", company: "Falconpeak", source: "Event", score: 88 },
+    { firstName: "Zoe", lastName: "Lindqvist", email: "zoe@holmwood.example", company: "Holmwood Group", source: "Referral", score: 61 },
+  ];
+  for (const l of leadSeeds) {
+    const existing = await p.lead.findFirst({ where: { orgId, email: l.email } });
+    if (existing) continue;
+    const created = await p.lead.create({ data: { orgId, ownerId: priya.id, ...l, status: l.score >= 70 ? "qualified" : "contacted", tags: [], visibility: "org", custom: {} } });
+    await emitEvent({ orgId, type: "lead.created", entity: "lead", entityId: created.id, actorId: priya.id });
+  }
+
+  // Opportunities across the pipeline
+  const dealSeeds = [
+    { name: "Northwind — Retail Platform Expansion", account: "Northwind Traders", amount: 180_000, stage: "negotiation", closeInDays: 21 },
+    { name: "Globex — ERP Integration", account: "Globex Corporation", amount: 95_000, stage: "proposal", closeInDays: 35 },
+    { name: "Initech — Growth Plan", account: "Initech", amount: 24_000, stage: "qualified", closeInDays: 60 },
+    { name: "Umbrella — Compliance Suite", account: "Umbrella Labs", amount: 320_000, stage: "discovery", closeInDays: 90 },
+    { name: "Northwind — Support Add-on", account: "Northwind Traders", amount: 12_000, stage: "won", closeInDays: -14 },
+    { name: "Globex — Pilot", account: "Globex Corporation", amount: 8_000, stage: "lost", closeInDays: -30 },
+  ];
+  for (const d of dealSeeds) {
+    const existing = await p.opportunity.findFirst({ where: { orgId, name: d.name } });
+    if (existing) continue;
+    const closeDate = new Date(Date.now() + d.closeInDays * 86_400_000);
+    const created = await p.opportunity.create({
+      data: { orgId, ownerId: leo.id, accountId: accounts[d.account], name: d.name, amount: d.amount, stage: d.stage, probability: stageProbability(d.stage), closeDate, tags: [], visibility: "org", custom: {} },
+    });
+    await emitEvent({ orgId, type: "deal.created", entity: "opportunity", entityId: created.id, actorId: leo.id, payload: { stage: d.stage } });
+  }
+
+  // Tasks + notes
+  const tasks = [
+    { title: "Send proposal to Globex", dueInDays: 2, priority: "high", status: "todo" },
+    { title: "Follow up with Elena (Northwind)", dueInDays: 1, priority: "medium", status: "todo" },
+    { title: "Update Umbrella deal stage", dueInDays: 0, priority: "medium", status: "in_progress" },
+  ];
+  for (const t of tasks) {
+    const existing = await p.task.findFirst({ where: { orgId, title: t.title } });
+    if (existing) continue;
+    await p.task.create({ data: { orgId, ownerId: leo.id, title: t.title, dueAt: new Date(Date.now() + t.dueInDays * 86_400_000), priority: t.priority, status: t.status, tags: [], visibility: "org", custom: {} } });
+  }
+  await p.note.create({ data: { orgId, authorId: leo.id, accountId: accounts["Northwind Traders"], body: "Elena wants a security review before we close. Shared the SOC2 report." } });
+
+  console.log(`✓ Seeded demo org "${ORG_NAME}"`);
+  console.log(`  Login → admin@qorvexa.dev / password123`);
+  console.log(`  Users: priya@qorvexa.dev, leo@qorvexa.dev (same password)`);
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await db().$disconnect();
+  });

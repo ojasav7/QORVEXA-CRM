@@ -1,0 +1,390 @@
+// QORVEXA CRM — Prisma schema (MongoDB provider)
+// ---------------------------------------------------------------
+// Phase 0 (platform backbone) + Phase 1 (core CRM).
+//
+// IMPORTANT MongoDB/Prisma constraints (documented in docs/01-architecture.md):
+//  • No relations — every reference is an explicit `*Id` ObjectId string
+//    joined in the service layer (by design: the blueprint's generic
+//    Object + Relationship model maps onto this directly).
+//  • No enums — use string columns validated at the service layer.
+//  • `@updatedAt` is not available on MongoDB; updatedAt is maintained
+//    by the service layer (see server/lib/object-service.ts).
+//
+// Every document carries `orgId` — multi-tenant isolation is enforced
+// in the service layer for every query (see docs/04-permissions.md).
+//
+// ADR-008 (docs/08-decision-log.md): every data model also carries an
+// `environment` scoping field (`production` | custom sandbox names). It is
+// threaded through the central access layer (server/lib/access.ts) exactly
+// like orgId — the request header `X-Environment` selects it, and the
+// client persists the choice in localStorage. Sandbox rows are invisible
+// to production queries (verified by the cross-env leak smoke test).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ── Phase 0 · Platform ───────────────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  slug      String   @unique
+  plan      String   @default("free") // free | pro | enterprise
+  settings  Json     @default("{}")   // locale, timezone, feature flags, data residency tags
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  email         String   @unique // globally unique in Phase 0-1 (login is email-based)
+  name          String
+  passwordHash  String
+  role          String   @default("rep") // admin | manager | rep (docs/04-permissions.md)
+  title         String?
+  active        Boolean  @default(true)
+  lastLoginAt   DateTime?
+  oauthProvider String? // google | github — set when the account signed in via SSO
+  oauthId       String? // the provider's stable user id (for linking)
+  createdAt     DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, email])
+}
+
+// Signed session cookie payload — the cookie itself is HMAC-signed with
+// SESSION_SECRET; no server-side session table needed for Phases 0–1
+// (upgraded to DB-backed sessions + device management in Phase 14).
+// The `id` here is a session id used for audit correlation.
+
+// Event bus persistence — every domain event that fires is written here
+// (deal.stage_changed, contact.created, ...). Consumers: activity feed,
+// webhook dispatch, future analytics/AI layers. See docs/03-event-catalog.md
+model Event {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008 — sandbox events never fire prod webhooks
+  type        String // object.action, e.g. deal.stage_changed
+  entity      String // object type, e.g. deal
+  entityId    String   @db.ObjectId
+  actorId     String   @db.ObjectId // user that caused it
+  payload     Json     @default("{}") // { from, to, ... } or context
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([orgId, environment, createdAt])
+  @@index([orgId, entity, entityId])
+  @@index([type])
+}
+
+// Audit trail — one row per field-level mutation on any object.
+// Enables "what changed, when, by whom" and the Phase-15 Time Machine.
+model AuditLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  actorId     String   @db.ObjectId
+  entity      String
+  entityId    String   @db.ObjectId
+  action      String // create | update | delete | stage_changed | ...
+  before      Json? // prior field values (null on create)
+  after       Json? // new field values (null on delete)
+  changed     Json? // { field: { from, to } } — computed diff (null on create/delete)
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, entity, entityId])
+  @@index([orgId, createdAt])
+  @@index([orgId, environment, createdAt])
+}
+
+// Registered outbound webhooks. When an Event of a subscribed type fires,
+// a delivery is POSTed to url with an HMAC signature header. docs/05-api-reference.md
+model Webhook {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008 — sandbox hooks only receive sandbox events
+  url         String
+  secret      String
+  events      Json     @default("[]") // array of event type subscriptions, e.g. ["deal.stage_changed"]
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+}
+
+model WebhookDelivery {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId      String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  webhookId  String   @db.ObjectId
+  eventId    String   @db.ObjectId
+  status     String   @default("pending") // pending | success | failed
+  statusCode Int?
+  attempts   Int      @default(0)
+  lastError  String?
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, status])
+}
+
+// Custom-field registry — the "no-code object builder" (v1).
+// Each row defines one custom field on an object type for an org.
+// Actual values live in each object's `custom` Json column.
+model FieldDef {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008 — custom fields are per-environment too
+  objectType  String // contact | account | lead | opportunity | task | ...
+  key         String // machine key, e.g. "employeeCount"
+  label       String // human label, e.g. "Employee count"
+  type        String // text | number | date | boolean | select | multiselect | url | email
+  required    Boolean  @default(false)
+  options     Json     @default("[]") // for select/multiselect
+  order       Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, objectType])
+  @@index([orgId, environment, objectType])
+}
+
+// Feature-flag registry — one row per org × environment × known flag.
+// The server owns the known-key list (server/lib/features.ts); these rows
+// hold the org's override for a flag in a given environment. Effective state
+// = Organization.settings.featureFlags[key] override → FeatureFlag row → default.
+// The API (requireFeature middleware) is the real gate; the UI is advisory.
+model FeatureFlag {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  key            String // known flag key, e.g. "import.merge"
+  label          String
+  description    String?
+  enabled        Boolean  @default(true)
+  plans          Json     @default("[]") // plan tiers this flag applies to
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@unique([orgId, environment, key])
+  @@index([orgId])
+}
+
+// Backup snapshots + restores (ADR-009) — every create/restore writes a row
+// so the full backup history is audit-friendly. Restore always lands in a
+// fresh sandbox environment, never production.
+model BackupJob {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  status        String   @default("running") // running | success | failed
+  archivePath   String   // relative path under backups/
+  sizeBytes     Int      @default(0)
+  environment   String   @default("production") // environment the snapshot captured
+  restoredToEnv String? // set when a restore created a fresh sandbox
+  note          String?
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+// Field-level permissions (blueprint principle #3) — one row per org × env ×
+// object type × field key. Empty arrays mean "all roles". Admin always passes.
+// readRoles gates what a role can see in list/detail responses; writeRoles gates
+// what a role can set on create/update. Rows are managed in Settings → Custom fields.
+model FieldPermission {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  objectType  String // contact | account | ...
+  fieldKey    String // core or custom field key
+  readRoles   Json     @default("[]") // roles allowed to read; [] = everyone
+  writeRoles  Json     @default("[]") // roles allowed to write; [] = everyone
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([orgId, environment, objectType, fieldKey])
+  @@index([orgId, objectType])
+}
+
+// API tokens (Phase 0 OAuth for integrations) — bearer tokens issued by admins
+// for third-party apps/scripts. Only the sha256 hash is stored; the raw token is
+// shown once at creation. Authenticated via `Authorization: Bearer <token>`.
+model ApiToken {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId      String    @db.ObjectId
+  name       String
+  tokenHash  String    @unique
+  prefix     String // first 8 chars of the raw token (display only)
+  role       String    @default("admin") // admin | manager | rep — the token acts as this role
+  scopes     Json      @default("[\"all\"]") // e.g. ["all"] | ["read"] | ["read","write"]
+  active     Boolean   @default(true)
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([orgId])
+}
+
+// ── Phase 1 · Core CRM objects ────────────────────────────────────────────────
+// All objects share the blueprint's standard shape (docs/02-data-model.md):
+// core typed fields + `custom` Json for registry-defined fields + `tags`.
+// `visibility`: owner | org — record-level access (docs/04-permissions.md).
+
+model Contact {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  ownerId     String   @db.ObjectId
+  accountId   String?  @db.ObjectId
+  promotedFrom String? // id of the source record when copied by env promotion
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  title       String?
+  source      String?
+  status      String   @default("new") // new | contacted | qualified | customer | lost
+  tags        Json     @default("[]")
+  custom      Json     @default("{}") // values for custom FieldDefs
+  visibility  String   @default("org") // owner | org
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+  @@index([orgId, email])
+  @@index([orgId, ownerId])
+}
+
+model Account {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  ownerId     String   @db.ObjectId
+  parentId    String?  @db.ObjectId // account hierarchy (parent/child)
+  promotedFrom String? // id of the source record when copied by env promotion
+  name        String
+  industry    String?
+  website     String?
+  phone       String?
+  employees   Int?
+  tier        String? // SMB | Mid-Market | Enterprise
+  tags        Json     @default("[]")
+  custom      Json     @default("{}")
+  visibility  String   @default("org")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+  @@index([orgId, name])
+}
+
+model Lead {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  ownerId     String   @db.ObjectId
+  promotedFrom String? // id of the source record when copied by env promotion
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  company     String?
+  source      String?
+  status      String   @default("new") // new | contacted | qualified | converted | lost
+  score       Int      @default(0) // 0–100
+  tags        Json     @default("[]")
+  custom      Json     @default("{}")
+  visibility  String   @default("org")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+  @@index([orgId, email])
+}
+
+// Deal / opportunity pipeline. Stage moves emit deal.stage_changed events
+// and are audit-logged (event-sourced for the Phase-15 Time Machine).
+model Opportunity {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String    @db.ObjectId
+  environment String    @default("production") // ADR-008
+  ownerId     String    @db.ObjectId
+  accountId   String?   @db.ObjectId
+  contactId   String?   @db.ObjectId
+  promotedFrom String?  // id of the source record when copied by env promotion
+  name        String
+  stage       String    @default("qualified") // see PIPELINE in server/lib/registry.ts
+  amount      Float     @default(0)
+  probability Int       @default(10) // %, stage-derived
+  closeDate   DateTime?
+  winReason   String?
+  lostReason  String?
+  competitors String?
+  tags        Json      @default("[]")
+  custom      Json      @default("{}")
+  visibility  String    @default("org")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+  @@index([orgId, stage])
+  @@index([orgId, ownerId])
+}
+
+model Task {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production") // ADR-008
+  ownerId       String   @db.ObjectId
+  contactId     String?  @db.ObjectId
+  opportunityId String? @db.ObjectId
+  promotedFrom  String? // id of the source record when copied by env promotion
+  title         String
+  description   String?
+  dueAt         DateTime?
+  status        String   @default("todo") // todo | in_progress | done
+  priority      String   @default("medium") // low | medium | high
+  tags          Json     @default("[]")
+  custom        Json     @default("{}")
+  visibility    String   @default("org")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+  @@index([orgId, ownerId])
+  @@index([orgId, status])
+}
+
+model Note {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  authorId    String   @db.ObjectId
+  contactId   String?  @db.ObjectId
+  accountId   String?  @db.ObjectId
+  opportunityId String? @db.ObjectId
+  promotedFrom String? // id of the source record when copied by env promotion
+  body        String
+  tags        Json     @default("[]")
+  custom      Json     @default("{}")
+  visibility  String   @default("org")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, environment])
+  @@index([orgId, contactId])
+}
