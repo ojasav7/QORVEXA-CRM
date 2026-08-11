@@ -137,4 +137,6 @@
 `PROGRESS.md` (Phase 2 → ✅ 100%), `docs/06-roadmap.md`, `docs/03-event-catalog.md`
 (Phase 2 events), `docs/05-api-reference.md` (email/templates/calls/meetings/
 booking/timeline/tracking sections), `docs/08-decision-log.md` (ADR-014),
-new `docs/14-communication-guide.md`, `README.md`.
+new `docs/14-communication-guide.md`, `docs/14-calling-compliance.md`(calling/recording compliance notes — blueprint deliverable),
+`docs/14-pipeline-builder-guide.md` (pipeline builder guide — blueprint
+deliverable), `README.md`.

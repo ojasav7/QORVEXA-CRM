@@ -104,6 +104,8 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/12-phase1-build-report.md](docs/12-phase1-build-report.md) | Phase 1 completion — lead routing, hierarchy UI, segments, lead-capture forms, merge UI |
 | [docs/13-phase2-lite-build-report.md](docs/13-phase2-lite-build-report.md) | Phase 2-lite — multi-pipeline engine (CRUD, per-org config, pipeline-aware deals board) |
 | [docs/14-communication-guide.md](docs/14-communication-guide.md) | Phase 2 how-it-works — email/templates/tracking, calls, meetings, booking, timeline, mock providers |
+| [docs/14-calling-compliance.md](docs/14-calling-compliance.md) | Calling/recording compliance notes — consent, retention, access control, GDPR/CCPA obligations |
+| [docs/14-pipeline-builder-guide.md](docs/14-pipeline-builder-guide.md) | Pipeline builder guide — create pipelines/stages/probabilities, set default, guards |
 | [docs/14-phase2-build-report.md](docs/14-phase2-build-report.md) | Phase 2 completion — Communication Core shipped end-to-end, verification evidence |
 
 ---
