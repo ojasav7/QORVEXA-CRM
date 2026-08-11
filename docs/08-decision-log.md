@@ -28,6 +28,7 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 | ADR-011 | Duplicate merge = master/merge with per-field choices | Accepted |
 | ADR-012 | Public lead forms = unauthenticated + honeypot + rate limit + no-leak dedupe | Accepted |
 | ADR-013 | Multi-pipeline = `Pipeline`/`PipelineStage` models, lazily seeded default, pipeline-derived probability | Accepted |
+| ADR-014 | Phase 2 comm providers are mocked; tracking endpoints are public + token-scoped | Accepted |
 
 ---
 
@@ -275,6 +276,53 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 - (+) Probability consistency: a stage's number lives in one place (the pipeline), not duplicated in registry + seed + UI.
 - (−) Stages are JSON, not a relational table — pipeline CRUD replaces the whole array (fine; atomic and simple at this scale).
 - (−) Legacy deals need the backfill before pipeline-scoped filters show them (documented in `docs/05-api-reference.md` and the runbook).
+
+---
+
+## Amendments (2026-08-11 — Phase 2 completion)
+
+> Phase 2 (Communication Core) shipped email (templates + send/sync/reply with
+> tracking), calling, calendar/meetings, public booking pages, and the auto-logged
+> record timeline. Real providers (SMTP, telephony) were intentionally mocked so
+> every surface — data model, events, webhooks, timeline, UI — is fully
+> exercisable without external accounts.
+
+## ADR-014 · Phase 2 comm providers are mocked; tracking endpoints are public + token-scoped
+
+**Status:** Accepted
+
+**Context:** Phase 2 needs email sending, open/click tracking, inbox sync, and call
+recording/transcription. Real providers require accounts, API keys, and callbacks
+(SMTP credentials, telephony SDKs, webhook verification) that a local demo cannot
+assume — and the blueprint's goal for this phase is the *behavior*, not the
+vendor integration. Email recipients are also never logged in, so tracking needs
+an unauthenticated surface without leaking tenant data.
+
+**Decision:**
+- **Mock providers behind one swap point** (`server/lib/comm.ts`): `EMAIL_MOCK=1`
+  simulates send (row + tracking token), a per-org inbound queue for sync, and
+  simulated replies. Call recording/transcription generate placeholder assets
+  when the org setting `settings.calling.recording` is enabled. When a real
+  provider lands, only these helpers change — storage, events, webhooks, and UI
+  already use the real implementation.
+- **Tracking endpoints are public by design** (`/api/t/px/:token`, `/api/t/click/:token`):
+  security rests on an unguessable 24-byte per-message token; responses expose no
+  org data (a 1×1 GIF and a scheme-validated 302 — `javascript:`/`data:` targets
+  are rejected). First open/click emit `email.opened` / `email.clicked`;
+  `openedCount` increments on every load.
+- **Public booking follows the lead-form playbook** (ADR-012): no auth, honeypot
+  (`company_name`) + per-IP rate limit (20/min), slot re-validation server-side
+  to guard double-booking races.
+
+**Consequences:**
+- (+) Every Phase 2 surface is live and verifiable locally with zero external
+  accounts — the demo tells the full story.
+- (+) The provider seam is documented (`docs/14-communication-guide.md`); the
+  swap to SMTP/telephony SDKs is localized.
+- (−) Open/click rates and "deliverability" are simulated, not real — acceptable
+  for this phase; the data model (status, timestamps, counts) is unchanged by
+  the provider swap.
+- (−) In-memory rate limits reset on restart (same accepted trade-off as ADR-012).
 
 ## Engineering note · Zod `.default()` leaks through `.partial()` on PATCH
 

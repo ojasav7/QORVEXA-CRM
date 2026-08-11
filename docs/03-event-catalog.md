@@ -71,6 +71,27 @@ webhook.created        org.created
 | `pipeline.deleted` | Admin deletes a pipeline (guarded) | `{ name }` |
 | `deal.pipeline_changed` | A deal was moved between pipelines | `{ from, to }` (pipeline ids; `null` = was on the default) |
 
+## Phase 2 events (Communication Core)
+
+| Event | When | Payload |
+|---|---|---|
+| `template.created` / `updated` / `deleted` | Email template lifecycle (admin/manager) | `{ name, category? }` |
+| `email.sent` | An email was sent (mock provider) | `{ to, subject, trackingToken, contactId?, opportunityId? }` |
+| `email.received` | Mock inbox sync pulled an inbound message | `{ from, subject }` |
+| `email.replied` | Simulated reply received | `{ threadId, subject, contactId? }` |
+| `email.opened` | Tracking pixel first fired for a message | `{ to, subject, contactId? }` |
+| `email.clicked` | Tracking link first clicked | `{ to, subject, url, contactId? }` |
+| `email.deleted` | A message row was deleted | `{ subject }` |
+| `call.completed` | A completed call was logged | `{ phone, durationSec, direction, contactId?, opportunityId? }` |
+| `call.logged` | A non-completed call was logged | `{ phone, status }` |
+| `call.deleted` | A call log entry was deleted | `{ phone }` |
+| `meeting.scheduled` | A meeting was scheduled (incl. booking pages, `booking: true`) | `{ title, startsAt, contactId?, booking? }` |
+| `meeting.completed` | A scheduled meeting moved to completed | `{ title, contactId? }` |
+| `meeting.status_changed` | Meeting status changed (non-completion transitions) | `{ from, to }` |
+| `meeting.deleted` | A meeting was deleted | `{ title }` |
+| `booking.page_created` / `updated` / `deleted` | Booking-page lifecycle (admin) | `{ name?, slug }` |
+| `booking.booked` | A public booking created a meeting | `{ slug, name, email, hostId, startsAt }` |
+
 > `task.completed` is reserved: it will fire when a task moves to `done` (the service currently emits `task.updated`; the dedicated event lands with Phase 3 automation so listeners aren't overloaded).
 
 ## Consumers

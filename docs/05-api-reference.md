@@ -244,6 +244,74 @@ Per-org deal pipelines (org × environment scoped, ADR-008). The org's **default
 
 **Backfill:** `npm run backfill:pipeline` stamps pre-schema deals (which carry no `pipelineId` field) onto their org's default pipeline — required once after `db:push` on existing databases (same pattern as `backfill:env`).
 
+## Email templates (Phase 2, flag `comm.email`)
+
+Reusable `{ subject, body }` pairs with `{{variable}}` merge fields (`{{contact.firstName}}`, `{{account.name}}`, `{{deal.amount}}`…). Writes: admin + manager; reads: any authenticated user.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/email-templates` | `{ items }` — org's templates, newest updated first. |
+| POST | `/api/email-templates` | `{ name, category?, subject, body, active? }`. Emits `template.created`. |
+| PATCH | `/api/email-templates/:id` | Partial update (PATCH semantics). Emits `template.updated`. |
+| DELETE | `/api/email-templates/:id` | Emits `template.deleted`. |
+
+## Email (Phase 2, flag `comm.email`)
+
+Org mailbox: outbound sends + inbound rows. Every outbound message gets a tracking token (open pixel + click redirect). Mock provider (`EMAIL_MOCK=1`) — nothing actually leaves the server (ADR-014).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/emails` | Query: `direction=in|out`, `contactId`, `opportunityId`, `accountId`, `q` (subject/body/addresses), pagination. `{ items, total }`. |
+| GET | `/api/emails/:id` | Single message. |
+| POST | `/api/emails` | `{ toEmail, subject, body, templateId?, contactId?, accountId?, opportunityId?, threadId? }`. With `templateId`, `body` is merged from the linked record. Returns `{ message, tracking: { openUrl, clickUrl } }`. Emits `email.sent`. |
+| POST | `/api/emails/sync` | `?limit=` drains the mock inbound queue into the inbox (`email.received`). |
+| POST | `/api/emails/:id/reply` | Simulates the recipient replying (mock) — new `in` row on the same thread, original flips to `replied`. Emits `email.replied`. |
+| DELETE | `/api/emails/:id` | Emits `email.deleted`. |
+
+**Tracking (public, token-scoped — ADR-014):** `GET /api/t/px/<token>` → 1×1 GIF, marks opened (`email.opened` on first open); `GET /api/t/click/<token>?u=<url>` → 302 to `<url>` (scheme-validated), marks clicked (`email.clicked`). Message status is the best state reached: `sent → opened → clicked → replied`.
+
+## Calls (Phase 2, flag `comm.calling`)
+
+Call log entries (click-to-call is a client-side `tel:` link). Recording/transcript are mock-generated when org setting `settings.calling.recording` is true or `recording: true` is requested (ADR-014).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/calls` | Query: `contactId`, `opportunityId`, `accountId`, pagination. `{ items, total }`. |
+| POST | `/api/calls` | `{ direction?, phone, durationSec?, status?, notes?, contactId?, recording? }`. `completed` emits `call.completed`; otherwise `call.logged`. |
+| PATCH | `/api/calls/:id` | Update status/notes/duration. |
+| DELETE | `/api/calls/:id` | Emits `call.deleted`. |
+
+## Meetings (Phase 2, flag `comm.calendar`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/meetings` | Query: `from`, `to` (overlap), `ownerId`, `status`, pagination. `{ items, total }`. |
+| POST | `/api/meetings` | `{ title, startsAt, endsAt, status?, location?, notes?, contactId?, accountId?, opportunityId?, ownerId? }`. Emits `meeting.scheduled`. |
+| PATCH | `/api/meetings/:id` | Reschedule / change status. `completed` emits `meeting.completed`; other transitions `meeting.status_changed`. |
+| DELETE | `/api/meetings/:id` | Emits `meeting.deleted`. |
+
+## Booking pages (Phase 2, admin) + public booking
+
+Admin-managed shareable scheduling links; bookings create meetings owned by the next round-robin host in the pool (mirrors lead routing).
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/booking-pages` | Admin | List pages. |
+| POST | `/api/booking-pages` | Admin | `{ name, slug, description?, durationMins, bufferMins?, hostPool?, availableDays?, startHour?, endHour?, timezone?, active? }`. Emits `booking.page_created`. |
+| PATCH | `/api/booking-pages/:id` | Admin | Partial update (PATCH semantics). Emits `booking.page_updated`. |
+| DELETE | `/api/booking-pages/:id` | Admin | Emits `booking.page_deleted`. |
+| GET | `/api/public/booking/:slug` | **none** | Public page config `{ name, description, durationMins, bufferMins, timezone, startHour, endHour }` — 400 when inactive/unknown. |
+| GET | `/api/public/booking/:slug/slots?date=YYYY-MM-DD` | **none** | `{ date, slots: [{ start, available }] }` — slot windows minus already-booked meetings. |
+| POST | `/api/public/booking/:slug/book` | **none** | `{ name, email, startsAt, notes?, company_name? (honeypot) }`. Re-validates the slot (guards double-booking), assigns round-robin host, creates the meeting. Emits `meeting.scheduled (booking: true)` + `booking.booked`. Returns `{ ok, booked, meetingId, hostId, startsAt }`. |
+
+**Public URL:** `/b/<slug>` (Vite SPA route). Honeypot + per-IP rate limit (20/min) protect the public endpoints, same shape as public lead forms.
+
+## Record timeline (Phase 2)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/timeline` | Requires `contactId`, `accountId` or `opportunityId`. `{ items: [{ kind: note|email|call|meeting, id, title, subtitle, createdAt, meta? }] }`, newest first, `?limit=50`. |
+
 ## Duplicate merge (Phase 1)
 
 Merges two records of the same type into a master, choosing per-field which record wins.

@@ -22,13 +22,16 @@ Legend: ✅ Shipped · 🧱 Scaffolded (foundation exists) · ⬜ Planned
 
 Contacts, accounts, leads, deals (6-stage pipeline board with drag-drop), activities (tasks + notes), tags, ownership, duplicate detection & merge (detection ✅, **merge UI ✅** — per-field master/merge), universal keyword search ✅ (semantic → Phase 8). **Phase 1 finishing:** lead routing (admin round-robin pool + manual override, ADR-010) ✅ · account hierarchy UI (cycle-guarded tree page) ✅ · dynamic segments (criteria builder + live counts) ✅ · public lead-capture forms (honeypot + rate limit + no-leak dedupe, ADR-012) ✅. See `docs/12-phase1-build-report.md`.
 
-## Phase 2 — Communication Core 🧱 (~15%)
+## Phase 2 — Communication Core ✅ **COMPLETE**
 
-- Email sync, templates, tracking — ⬜
-- Calendar / booking pages — ⬜
-- Calling — ⬜
-- **Multi-pipeline engine — ✅ (Phase 2-lite shipped)**: `Pipeline`/`PipelineStage` models (org × env), `/api/pipelines` CRUD with guards + events, per-org default pipeline lazily seeded from the registry, deals carry `pipelineId`, stage-validated with pipeline-derived probability, deals board pipeline switcher + per-pipeline columns, Settings → Pipelines editor, `deal.pipeline_changed` event. See `docs/13-phase2-lite-build-report.md`. Left for Phase 2: email templates.
-- Auto-logging, deal fields (win/lost reasons exist ✅)
+- **Email sync, templates, tracking — ✅**: `EmailTemplate` CRUD (admin/manager) with `{{variable}}` merge fields; `/api/emails` send (mock provider, `EMAIL_MOCK=1`) with template merge + per-message tracking token; mock inbox sync + simulated replies; public open-pixel/click-redirect endpoints (`/api/t/*`, token-scoped, ADR-014) that flip message status `sent → opened → clicked → replied` and emit `email.*` events.
+- **Calendar / booking pages — ✅**: `/api/meetings` CRUD with date-range overlap queries + status lifecycle; admin `/api/booking-pages` (slug, duration/buffer, availability, round-robin host pool) and public `/b/:slug` booking flow (honeypot + rate limit + server-side slot re-validation); bookings create meetings owned by the assigned host.
+- **Calling — ✅**: `/api/calls` log with direction/status/duration, optional mock recording + transcript (org setting `settings.calling.recording`), `call.completed` / `call.logged`.
+- **Multi-pipeline engine — ✅ (Phase 2-lite)**: `Pipeline`/`PipelineStage` models (org × env), `/api/pipelines` CRUD with guards + events, per-org default pipeline lazily seeded from the registry, deals carry `pipelineId`, stage-validated with pipeline-derived probability, deals board pipeline switcher + per-pipeline columns, Settings → Pipelines editor, `deal.pipeline_changed` event. See `docs/13-phase2-lite-build-report.md`.
+- **Auto-logging + record timeline — ✅**: `/api/timeline` aggregates notes + emails + calls + meetings per record; the record detail drawer renders it. Deal fields (win/lost reasons) shipped.
+- **Feature-gated nav** — `comm.email` / `comm.calling` / `comm.calendar` flags (all on by default) gate the API + UI.
+
+See `docs/14-phase2-build-report.md` + `docs/14-communication-guide.md`.
 
 ## Phase 3 — Automation & Workflow Engine 🧱
 
@@ -83,6 +86,6 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Ti
 
 ## Suggested next milestones
 
-1. **Phase 2-lite:** multi-pipeline admin + email templates (natural extension of the object model).
-2. **Phase 3-lite:** a visual workflow builder over the event bus (trigger → condition → action), which also delivers `task.completed` and notifications.
-3. **Phase 0 hardening:** sandbox environments, feature flags, CSV merge UI, and backup/restore — the remaining enterprise backbone items.
+1. **~~Phase 2-lite~~** — done (multi-pipeline). **~~Phase 2~~** — done (Communication Core: email, calling, calendar, booking, timeline).
+2. **Phase 3-lite:** a visual workflow builder over the event bus (trigger → condition → action), which also delivers `task.completed` and notifications — the event substrate (`onEvent`, `task.completed` reserved) is ready.
+3. **Phase 6-lite:** report builder + metrics library over the event-sourced pipeline/comm data (weighted forecasts are ready to compute).

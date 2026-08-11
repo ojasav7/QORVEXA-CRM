@@ -11,7 +11,7 @@
 
 # QORVEXA CRM
 
-**The intelligent operating system for business** — Phases 0–1 **complete** (platform backbone + full core CRM) + **Phase 2-lite multi-pipeline** shipped.
+**The intelligent operating system for business** — Phases 0–2 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking).
 
 </div>
 
@@ -29,6 +29,10 @@ A production-shaped CRM implementing the architecture principles from `QORVEXATh
 - **Public lead-capture forms** — embeddable, no-auth forms with honeypot + rate limiting; submissions create routed leads (`source: "Website"`).
 - **Account hierarchy + duplicate merge UI** — cycle-guarded parent/child tree page; pick two records and merge per-field.
 - **Multi-pipeline engine (Phase 2-lite)** — per-org pipelines with editable stages (label + probability); the deals board switches pipelines, probability is derived from each pipeline's stage definition, and a default pipeline is lazily seeded for every org.
+- **Email + templates (Phase 2)** — reusable templates with `{{variable}}` merge fields, compose-from-template, mock inbox sync + simulated replies, and **open/click tracking** (public token-scoped pixel/redirect) with per-message status (`sent → opened → clicked → replied`).
+- **Calling (Phase 2)** — click-to-call + full call log with optional mock recording/transcription.
+- **Calendar + booking (Phase 2)** — meetings with date-range calendar view, plus **public booking pages** (`/b/<slug>`) with round-robin host assignment, honeypot + rate limiting, and server-side slot validation.
+- **Auto-logged record timeline (Phase 2)** — every email, call, meeting, and note against a record appears on its detail drawer automatically.
 - **No-code object builder (v1)** — admins define custom fields per object type via the UI; values are stored per-record and rendered dynamically.
 - **Multi-tenant from Day 1** — every document carries `orgId`; isolation is enforced on every query.
 - **Audit trail** — every mutation is logged with a field-level diff (`before`/`after`/`changed`), the foundation for the Phase-15 Time Machine.
@@ -99,6 +103,8 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/11-phase0-build-report.md](docs/11-phase0-build-report.md) | Phase 0 hardening + completion — what shipped, deviations, verification evidence |
 | [docs/12-phase1-build-report.md](docs/12-phase1-build-report.md) | Phase 1 completion — lead routing, hierarchy UI, segments, lead-capture forms, merge UI |
 | [docs/13-phase2-lite-build-report.md](docs/13-phase2-lite-build-report.md) | Phase 2-lite — multi-pipeline engine (CRUD, per-org config, pipeline-aware deals board) |
+| [docs/14-communication-guide.md](docs/14-communication-guide.md) | Phase 2 how-it-works — email/templates/tracking, calls, meetings, booking, timeline, mock providers |
+| [docs/14-phase2-build-report.md](docs/14-phase2-build-report.md) | Phase 2 completion — Communication Core shipped end-to-end, verification evidence |
 
 ---
 
