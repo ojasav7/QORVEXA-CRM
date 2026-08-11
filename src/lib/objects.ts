@@ -54,7 +54,9 @@ export const OBJECT_META: Record<string, ObjectMeta> = {
     path: "/deals",
     titleField: "name",
     columns: ["name", "accountId_label", "pipelineId_label", "amount", "stage", "closeDate"],
-    formFields: ["name", "amount", "pipelineId", "stage", "closeDate"],
+    // Blueprint Phase 2 deal fields — value (amount), probability (derived from
+    // the pipeline stage), close date, competitors, and win/lost reasons.
+    formFields: ["name", "amount", "pipelineId", "stage", "closeDate", "competitors", "winReason", "lostReason"],
   },
   task: {
     type: "task",
