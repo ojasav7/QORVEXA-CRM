@@ -9,6 +9,7 @@ import { asyncHandler, badRequest, ok } from "../lib/http";
 import { emitEvent } from "../lib/events";
 import { OBJECTS } from "../lib/registry";
 import { resolveEnvironment } from "../lib/environment";
+import { pipelineStages } from "../lib/pipelines";
 import { fieldPermMap, canRead, canWrite } from "../lib/field-permissions";
 import { writeAudit } from "../lib/audit";
 
@@ -39,7 +40,16 @@ router.get(
       read: canRead(perm, user.role),
       write: canWrite(perm, user.role),
     }));
-    ok(res, { core: def.fields, custom, permissions });
+    // Phase 2-lite multi-pipeline: the deal form's stage options come from the
+    // org's default pipeline (falling back to the registry for other types).
+    let core = def.fields;
+    if (def.type === "opportunity") {
+      const stages = await pipelineStages(user.orgId, environment);
+      if (stages.length) {
+        core = def.fields.map((f) => (f.key === "stage" ? { ...f, options: stages.map((s) => s.key) } : f));
+      }
+    }
+    ok(res, { core, custom, permissions });
   })
 );
 

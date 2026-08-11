@@ -8,6 +8,7 @@ import { db } from "./db";
 import { PIPELINE } from "./lib/registry";
 import { stageProbability } from "./lib/registry";
 import { emitEvent } from "./lib/events";
+import { ensureDefaultPipeline, listPipelines, slugifyStageKey } from "./lib/pipelines";
 
 const ORG_EMAIL = "admin@qorvexa.dev";
 const ORG_NAME = "Qorvexa Demo Inc";
@@ -99,21 +100,65 @@ async function main() {
     await emitEvent({ orgId, type: "lead.created", entity: "lead", entityId: created.id, actorId: priya.id });
   }
 
-  // Opportunities across the pipeline
+  // Pipelines (Phase 2-lite) — a default "Sales" pipeline seeded from the
+  // registry + a second "Renewals" pipeline to demo multi-pipeline.
+  const salesPipelineId = await ensureDefaultPipeline(orgId, "production");
+  // Backfill: deals created before the pipelineId column existed have NO
+  // pipelineId field (Prisma/Mongo treats missing ≠ null) — stamp them onto the
+  // default pipeline at the RAW level so list filters resolve them (see
+  // server/scripts/backfill-pipeline.ts for the standalone version).
+  await (p as any).$runCommandRaw({
+    update: "Opportunity",
+    updates: [
+      {
+        // orgId/pipelineId are stored as ObjectIds — extended JSON ($oid).
+        q: { orgId: { $oid: orgId }, $or: [{ pipelineId: { $exists: false } }, { pipelineId: null }] },
+        u: { $set: { pipelineId: { $oid: salesPipelineId } } },
+        multi: true,
+      },
+    ],
+  });
+  let renewalsPipelineId: string | null = null;
+  const existingPipelines = await listPipelines(orgId, "production");
+  const renewals = existingPipelines.find((pp) => pp.name === "Renewals");
+  if (renewals) {
+    renewalsPipelineId = renewals.id;
+  } else {
+    const renewalsStages = [
+      { label: "Renewal due", probability: 30 },
+      { label: "Proposal", probability: 55 },
+      { label: "Negotiation", probability: 75 },
+      { label: "Won", probability: 100 },
+      { label: "Lost", probability: 0 },
+    ].map((s, i) => ({ key: slugifyStageKey(s.label), label: s.label, probability: s.probability, order: i }));
+    const createdRenewals = await (p as any).pipeline.create({
+      data: { orgId, environment: "production", name: "Renewals", isDefault: false, stages: renewalsStages },
+    });
+    renewalsPipelineId = createdRenewals.id;
+  }
+  // Re-fetch AFTER both pipelines exist so stage-probability lookups resolve.
+  const pipelinesAfter = await listPipelines(orgId, "production");
+
+  // Opportunities across the pipeline (all on Sales except one on Renewals)
   const dealSeeds = [
-    { name: "Northwind — Retail Platform Expansion", account: "Northwind Traders", amount: 180_000, stage: "negotiation", closeInDays: 21 },
-    { name: "Globex — ERP Integration", account: "Globex Corporation", amount: 95_000, stage: "proposal", closeInDays: 35 },
-    { name: "Initech — Growth Plan", account: "Initech", amount: 24_000, stage: "qualified", closeInDays: 60 },
-    { name: "Umbrella — Compliance Suite", account: "Umbrella Labs", amount: 320_000, stage: "discovery", closeInDays: 90 },
-    { name: "Northwind — Support Add-on", account: "Northwind Traders", amount: 12_000, stage: "won", closeInDays: -14 },
-    { name: "Globex — Pilot", account: "Globex Corporation", amount: 8_000, stage: "lost", closeInDays: -30 },
+    { name: "Northwind — Retail Platform Expansion", account: "Northwind Traders", amount: 180_000, stage: "negotiation", closeInDays: 21, pipelineId: salesPipelineId },
+    { name: "Globex — ERP Integration", account: "Globex Corporation", amount: 95_000, stage: "proposal", closeInDays: 35, pipelineId: salesPipelineId },
+    { name: "Initech — Growth Plan", account: "Initech", amount: 24_000, stage: "qualified", closeInDays: 60, pipelineId: salesPipelineId },
+    { name: "Umbrella — Compliance Suite", account: "Umbrella Labs", amount: 320_000, stage: "discovery", closeInDays: 90, pipelineId: salesPipelineId },
+    { name: "Northwind — Support Add-on", account: "Northwind Traders", amount: 12_000, stage: "won", closeInDays: -14, pipelineId: salesPipelineId },
+    { name: "Globex — Pilot", account: "Globex Corporation", amount: 8_000, stage: "lost", closeInDays: -30, pipelineId: salesPipelineId },
+    { name: "Umbrella — License Renewal", account: "Umbrella Labs", amount: 40_000, stage: "proposal", closeInDays: 45, pipelineId: renewalsPipelineId },
   ];
   for (const d of dealSeeds) {
     const existing = await p.opportunity.findFirst({ where: { orgId, name: d.name } });
     if (existing) continue;
     const closeDate = new Date(Date.now() + d.closeInDays * 86_400_000);
+    // probability from the pipeline's stage definition (the registry default
+    // pipeline keeps the old values; Renewals uses its own).
+    const stageDef = pipelinesAfter.find((pp) => pp.id === d.pipelineId)?.stages.find((s) => s.key === d.stage);
+    const probability = stageDef?.probability ?? stageProbability(d.stage);
     const created = await p.opportunity.create({
-      data: { orgId, ownerId: leo.id, accountId: accounts[d.account], name: d.name, amount: d.amount, stage: d.stage, probability: stageProbability(d.stage), closeDate, tags: [], visibility: "org", custom: {} },
+      data: { orgId, ownerId: leo.id, accountId: accounts[d.account], name: d.name, amount: d.amount, stage: d.stage, probability, closeDate, pipelineId: d.pipelineId, tags: [], visibility: "org", custom: {} },
     });
     await emitEvent({ orgId, type: "deal.created", entity: "opportunity", entityId: created.id, actorId: leo.id, payload: { stage: d.stage } });
   }

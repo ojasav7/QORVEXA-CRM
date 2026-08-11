@@ -4,7 +4,7 @@
 > Status cross-references the blueprint (`QORVEXAThe intelligent operating system for business.md`)
 > and what's actually verified in this repo. **Effort estimates are rough build-days for one developer.**
 
-<!-- Last updated: 2026-08-10 -->
+<!-- Last updated: 2026-08-11 (Phase 2-lite: multi-pipeline shipped) -->
 
 ## Summary
 
@@ -12,11 +12,11 @@
 |---|---|
 | Phases complete | **2 / 16** (Phase 0 — Platform Foundations ✅ 100%, Phase 1 — Core CRM ✅ 100%) |
 | Phases substantially built | 0 |
-| Phases partially built | 2 (Phase 6 substrate, Phase 8 substrate) |
-| Phases not started | 12 |
-| Current focus | Phase 2-lite (multi-pipeline admin + email templates) |
+| Phases partially built | 3 (Phase 2-lite multi-pipeline, Phase 6 substrate, Phase 8 substrate) |
+| Phases not started | 11 |
+| Current focus | Phase 2-lite remainder (email templates) → Phase 3-lite (workflow engine) |
 
-**Phases 0 and 1 are complete.** The platform backbone (object model, event bus, RBAC, audit, custom fields, sandboxes, feature flags, import/export with merge, scheduled backups, field-level permissions, data residency, OAuth tokens + SSO) and the full core CRM (lead routing, account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI) are all shipped and live-verified. The object model means every later phase starts from a solid, extensible base.
+**Phases 0 and 1 are complete; Phase 2-lite's multi-pipeline engine is shipped.** The platform backbone (object model, event bus, RBAC, audit, custom fields, sandboxes, feature flags, import/export with merge, scheduled backups, field-level permissions, data residency, OAuth tokens + SSO) and the full core CRM (lead routing, account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI) are all shipped and live-verified. The object model means every later phase starts from a solid, extensible base.
 
 ## Phase-by-phase status
 
@@ -58,13 +58,13 @@
 - Duplicate detection (email/name) + global keyword search + **duplicate merge UI** (`POST /api/merge`, per-field master/merge choice, `<type>.merged` `via: "records"`) (ADR-011)
 - **Segments** — dynamic lists as a first-class entity: `Segment` model + criteria builder/compiler, live member counts, `/api/segments` CRUD + `/members`, Segments page with filter builder (ADR-003 pattern)
 
-**Verified by:** `npm run typecheck` + `npm run build` green; live curl smoke tests for round-robin cycling (full-id assertions), explicit-owner precedence, manual reassign, rep 403, public-form dedupe/routing/honeypot, segment counts + bad-field 400, hierarchy cycle guards, and merge field choices — plus three real bugs caught and fixed during verification (see `docs/12-phase1-build-report.md`).
+**Verified by:** `npm run typecheck` + `npm run build` green; live curl smoke tests for round-robin cycling (full-id assertions), explicit-owner precedence, manual reassign, rep 403, public-form dedupe/routing/honeypot, segment counts + bad-field 400, hierarchy cycle guards, and merge field choices — plus three real bugs caught and fixed during verification (see `docs/12-phase1-build-report.md`). **Re-verified 2026-08-11** against a freshly booted stack: `verify-phase1.sh` (repeatable live smoke suite, 30/30 green), demo data left pristine (5 contacts / 4 leads / 4 accounts / 0 segments / 0 forms).
 
 ---
 
-### Phase 2 — Communication Core ⬜ — *est. 6–8 days*
+### Phase 2 — Communication Core 🧱 (~15%) — *est. 6–8 days remaining*
 
-Email sync/templates/tracking, calendar + booking, calling, **multi-pipeline engine** (registry already parameterizes the pipeline — the cheapest win in the roadmap), auto-logging, win/lost reasons (fields already exist). Pipeline config per org is the recommended entry point.
+**Multi-pipeline engine ✅ (Phase 2-lite shipped, see `docs/13-phase2-lite-build-report.md`):** `Pipeline`/`PipelineStage` models (org × env, stages as JSON), `/api/pipelines` CRUD (reads open, writes admin-only) with guards (no default/last/with-deals deletion), per-org **default pipeline lazily seeded** from the registry, deals carry `pipelineId` (NULL = default; backfill script `npm run backfill:pipeline` stamps legacy deals), stage validated per pipeline + **probability derived from the pipeline's stage definition**, deals board with pipeline switcher + per-pipeline columns, Settings → Pipelines stage editor, `deal.pipeline_changed` + `pipeline.*` events. Left: email sync/templates/tracking, calendar + booking, calling, auto-logging.
 
 ---
 
@@ -151,7 +151,7 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Op
 1. ~~**Phase 0 hardening**~~ — **done** (spec in `docs/09-spec-phase0-hardening.md`, report in `docs/11-phase0-build-report.md`): sandbox envs, feature flags, CSV merge UI, backup/restore.
 2. ~~**Phase 0 completion**~~ — **done** (addendum in `docs/11-phase0-build-report.md` §9): CSV export, field-level permissions, data residency config, scheduled backups + retention, OAuth tokens + SSO. Phase 0 is **100% complete**.
 3. ~~**Finish Phase 1**~~ — **done** (report in `docs/12-phase1-build-report.md`): lead routing (round-robin + manual override), account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI. Phase 1 is **100% complete**.
-3. **Phase 2-lite** (~3–4 days): multi-pipeline admin + email templates — the object model makes this the cheapest *new* capability.
+3. ~~**Phase 2-lite: multi-pipeline**~~ — **done** (report in `docs/13-phase2-lite-build-report.md`): pipeline CRUD + per-org config, lazily seeded default pipeline, pipeline-aware deals board, probability from pipeline stages. **Remaining Phase 2-lite: email templates** (~1–2 days).
 4. **Phase 3-lite** (~8–10 days): workflow engine — unlocks `task.completed`, notifications, and every automation-dependent phase after it.
 
 Dependencies: Phases 4, 5, 7, 8, 9 all consume the event bus + object model (done). Phase 8–9 AI work should wait until Phases 1–7 produce real data volume.

@@ -11,7 +11,7 @@
 
 # QORVEXA CRM
 
-**The intelligent operating system for business** — Phases 0–1 **complete** (platform backbone + full core CRM) and running.
+**The intelligent operating system for business** — Phases 0–1 **complete** (platform backbone + full core CRM) + **Phase 2-lite multi-pipeline** shipped.
 
 </div>
 
@@ -28,6 +28,7 @@ A production-shaped CRM implementing the architecture principles from `QORVEXATh
 - **Dynamic segments** — criteria builder with live member counts, computed on read.
 - **Public lead-capture forms** — embeddable, no-auth forms with honeypot + rate limiting; submissions create routed leads (`source: "Website"`).
 - **Account hierarchy + duplicate merge UI** — cycle-guarded parent/child tree page; pick two records and merge per-field.
+- **Multi-pipeline engine (Phase 2-lite)** — per-org pipelines with editable stages (label + probability); the deals board switches pipelines, probability is derived from each pipeline's stage definition, and a default pipeline is lazily seeded for every org.
 - **No-code object builder (v1)** — admins define custom fields per object type via the UI; values are stored per-record and rendered dynamically.
 - **Multi-tenant from Day 1** — every document carries `orgId`; isolation is enforced on every query.
 - **Audit trail** — every mutation is logged with a field-level diff (`before`/`after`/`changed`), the foundation for the Phase-15 Time Machine.
@@ -76,6 +77,7 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run db:generate` / `db:push` | Prisma client / schema sync |
 | `npm run seed` | Demo data generator (idempotent) |
+| `npm run backfill:pipeline` | Stamp legacy deals onto their org's default pipeline (run once after `db:push` on existing DBs) |
 | `npm run mongo:up` / `mongo:down` | Docker Mongo up/down |
 
 ## Documentation
@@ -96,6 +98,7 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/10-continuation-runbook.md](docs/10-continuation-runbook.md) | Hand-off pack + "continue here" prompt for a fresh session |
 | [docs/11-phase0-build-report.md](docs/11-phase0-build-report.md) | Phase 0 hardening + completion — what shipped, deviations, verification evidence |
 | [docs/12-phase1-build-report.md](docs/12-phase1-build-report.md) | Phase 1 completion — lead routing, hierarchy UI, segments, lead-capture forms, merge UI |
+| [docs/13-phase2-lite-build-report.md](docs/13-phase2-lite-build-report.md) | Phase 2-lite — multi-pipeline engine (CRUD, per-org config, pipeline-aware deals board) |
 
 ---
 

@@ -90,6 +90,7 @@ export const OBJECTS: ObjectDef[] = [
       { key: "amount", label: "Amount", type: "currency", list: true },
       { key: "stage", label: "Stage", type: "select", options: PIPELINE.map((p) => p.stage) },
       { key: "probability", label: "Probability", type: "number", list: true },
+      { key: "pipelineId", label: "Pipeline", type: "text" }, // Phase 2-lite multi-pipeline (rendered as a select via relation options)
       { key: "closeDate", label: "Close date", type: "date" },
       { key: "accountId", label: "Account", type: "text" },
       { key: "contactId", label: "Contact", type: "text" },

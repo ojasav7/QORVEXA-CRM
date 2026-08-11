@@ -8,7 +8,8 @@ import { badRequest, forbidden, notFound } from "./http";
 import { writeAudit } from "./audit";
 import { emitEvent } from "./events";
 import { assertCanAccess, listConditions, type AccessUser } from "./access";
-import { getObjectDef, stageProbability, type ObjectDef } from "./registry";
+import { getObjectDef, type ObjectDef } from "./registry";
+import { ensureDefaultPipeline } from "./pipelines";
 import { fieldPermMap, canWrite, maskRow, type FieldPerm } from "./field-permissions";
 import { assertAccountParentExists, assertSafeAccountParent } from "./accounts";
 
@@ -26,6 +27,16 @@ export type ObjectConfig = {
   assignOwner?: (user: AccessUser, input: Record<string, unknown>) => Promise<string | null | undefined>;
   /** Emit `<eventPrefix>.routed` when assignOwner assigned a different owner than the caller. */
   routedEvent?: boolean;
+  /**
+   * Phase 2-lite multi-pipeline: resolve a deal's pipeline/stage/probability on
+   * create/update. Runs for opportunities; the hook validates that the stage
+   * exists in the pipeline and derives the probability (registry-agnostic).
+   */
+  resolveDeal?: (
+    user: AccessUser,
+    input: { pipelineId?: string; stage?: string; probability?: number },
+    before?: { pipelineId?: string | null; stage?: string }
+  ) => Promise<{ pipelineId: string; stage: string; probability: number }>;
 };
 
 const configs: Record<string, ObjectConfig> = {};
@@ -176,6 +187,7 @@ export type ListQuery = {
   stage?: string;
   status?: string;
   ownerId?: string;
+  pipelineId?: string;
   sort?: string;
 };
 
@@ -205,6 +217,16 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
     if (query.stage) where.stage = query.stage;
     if (query.status) where.status = query.status;
     if (query.ownerId) where.ownerId = query.ownerId;
+    if (query.pipelineId) {
+      // Phase 2-lite: legacy deals (pipelineId null) belong to the org's default
+      // pipeline, so filtering by the default pipeline includes them.
+      const defId = await ensureDefaultPipeline(user.orgId, user.environment ?? "production");
+      if (query.pipelineId === defId) {
+        where.OR = [{ pipelineId: defId }, { pipelineId: null }];
+      } else {
+        where.pipelineId = query.pipelineId;
+      }
+    }
 
     const [items, total] = await Promise.all([
       modelOf(cfg.type).findMany({
@@ -239,7 +261,6 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
       throw badRequest(`A ${def.label.toLowerCase()} with this ${dup.field} already exists`);
     }
 
-    const stage = coreData.stage ?? (def.type === "opportunity" ? "qualified" : undefined);
     // Phase 1 lead routing: an explicit owner always wins; otherwise the
     // registered assignOwner hook (e.g. round-robin pool) may pick one.
     let routedOwner: string | null = null;
@@ -263,8 +284,17 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
     // ownerId is the generic alias; when the real column differs (Note → authorId)
     // remove the alias so Prisma doesn't see an unknown field.
     if (ownerField !== "ownerId") delete data.ownerId;
-    if (def.type === "opportunity" && typeof data.probability !== "number") {
-      data.probability = stageProbability(String(stage));
+    if (def.type === "opportunity" && cfg.resolveDeal) {
+      // pipelineId is not a core field — pull it from the raw input (it would
+      // otherwise be dropped as an unknown key, like the Phase 1 ownerId bug).
+      const pipelineCtx = await cfg.resolveDeal(user, {
+        pipelineId: typeof input.pipelineId === "string" && input.pipelineId.trim() ? input.pipelineId.trim() : undefined,
+        stage: (coreData.stage as string | undefined) ?? undefined,
+        probability: coreData.probability as number | undefined,
+      });
+      data.pipelineId = pipelineCtx.pipelineId;
+      data.stage = pipelineCtx.stage;
+      data.probability = pipelineCtx.probability;
     }
     if (def.type === "lead" && typeof data.score !== "number") data.score = 0;
 
@@ -339,8 +369,19 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
     if (Object.keys(custom).length) patch.custom = { ...((before.custom as object) ?? {}), ...custom };
 
     const isStageChange = cfg.type === "opportunity" && before.stage !== patch.stage;
-    if (isStageChange) {
-      patch.probability = stageProbability(String(patch.stage));
+    // Only a real, non-empty pipelineId counts as a pipeline move — an empty
+    // string means "keep current" and must not emit deal.pipeline_changed.
+    const rawPipelineId = typeof input.pipelineId === "string" ? input.pipelineId.trim() : "";
+    const isPipelineChange = cfg.type === "opportunity" && rawPipelineId !== "" && String(before.pipelineId ?? "") !== rawPipelineId;
+    if ((isStageChange || isPipelineChange) && cfg.resolveDeal) {
+      const pipelineCtx = await cfg.resolveDeal(user, {
+        pipelineId: typeof input.pipelineId === "string" && input.pipelineId.trim() ? input.pipelineId.trim() : before.pipelineId ?? undefined,
+        stage: (patch.stage as string | undefined) ?? before.stage,
+        probability: patch.probability as number | undefined,
+      }, { pipelineId: before.pipelineId, stage: before.stage });
+      patch.pipelineId = pipelineCtx.pipelineId;
+      patch.stage = pipelineCtx.stage;
+      patch.probability = pipelineCtx.probability;
       patch.updatedAt = new Date();
     }
 
@@ -351,7 +392,7 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
       actorId: user.id,
       entity: cfg.type,
       entityId: id,
-      action: isStageChange ? "stage_changed" : ownerChanged ? "owner_changed" : "update",
+      action: isPipelineChange ? "pipeline_changed" : isStageChange ? "stage_changed" : ownerChanged ? "owner_changed" : "update",
       before: before as Record<string, unknown>,
       after: after as Record<string, unknown>,
       ip,
@@ -366,6 +407,17 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
         entityId: id,
         actorId: user.id,
         payload: { from: before[ownerField] ?? null, to: explicitOwner, mode: "manual" },
+      });
+    }
+    if (isPipelineChange) {
+      await emitEvent({
+        orgId: user.orgId,
+        environment,
+        type: `${cfg.eventPrefix}.pipeline_changed`,
+        entity: cfg.type,
+        entityId: id,
+        actorId: user.id,
+        payload: { from: before.pipelineId ?? null, to: patch.pipelineId },
       });
     }
     if (isStageChange) {

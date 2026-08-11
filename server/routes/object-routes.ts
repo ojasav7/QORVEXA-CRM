@@ -23,6 +23,7 @@ export function objectRouter(service: ObjectService): Router {
         stage: str(req.query.stage),
         status: str(req.query.status),
         ownerId: str(req.query.ownerId),
+        pipelineId: str(req.query.pipelineId),
         sort: str(req.query.sort),
       });
       ok(res, result);

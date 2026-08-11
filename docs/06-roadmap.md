@@ -22,12 +22,12 @@ Legend: ✅ Shipped · 🧱 Scaffolded (foundation exists) · ⬜ Planned
 
 Contacts, accounts, leads, deals (6-stage pipeline board with drag-drop), activities (tasks + notes), tags, ownership, duplicate detection & merge (detection ✅, **merge UI ✅** — per-field master/merge), universal keyword search ✅ (semantic → Phase 8). **Phase 1 finishing:** lead routing (admin round-robin pool + manual override, ADR-010) ✅ · account hierarchy UI (cycle-guarded tree page) ✅ · dynamic segments (criteria builder + live counts) ✅ · public lead-capture forms (honeypot + rate limit + no-leak dedupe, ADR-012) ✅. See `docs/12-phase1-build-report.md`.
 
-## Phase 2 — Communication Core 🧱
+## Phase 2 — Communication Core 🧱 (~15%)
 
 - Email sync, templates, tracking — ⬜
 - Calendar / booking pages — ⬜
 - Calling — ⬜
-- **Multi-pipeline engine** — 🧱 `registry.ts` already parameterizes the pipeline; add pipeline CRUD + per-org config
+- **Multi-pipeline engine — ✅ (Phase 2-lite shipped)**: `Pipeline`/`PipelineStage` models (org × env), `/api/pipelines` CRUD with guards + events, per-org default pipeline lazily seeded from the registry, deals carry `pipelineId`, stage-validated with pipeline-derived probability, deals board pipeline switcher + per-pipeline columns, Settings → Pipelines editor, `deal.pipeline_changed` event. See `docs/13-phase2-lite-build-report.md`. Left for Phase 2: email templates.
 - Auto-logging, deal fields (win/lost reasons exist ✅)
 
 ## Phase 3 — Automation & Workflow Engine 🧱

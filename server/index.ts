@@ -12,6 +12,7 @@ import { errorHandler } from "./lib/http";
 import { registerObject } from "./lib/object-service";
 import { runScheduledSnapshots } from "./lib/backup";
 import { nextRoundRobinOwner } from "./lib/lead-routing";
+import { resolveDealContext } from "./lib/pipelines";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import orgRoutes from "./routes/org";
@@ -32,6 +33,17 @@ import segmentRoutes from "./routes/segments";
 import leadFormRoutes from "./routes/lead-forms";
 import publicLeadRoutes from "./routes/public-leads";
 import mergeRoutes from "./routes/merge";
+import pipelineRoutes from "./routes/pipelines";
+// Phase 2 · Communication Core
+import emailTemplateRoutes from "./routes/email-templates";
+import emailRoutes from "./routes/emails";
+import trackingRoutes from "./routes/tracking";
+import callRoutes from "./routes/calls";
+import meetingRoutes from "./routes/meetings";
+import bookingPageRoutes from "./routes/booking-pages";
+import publicBookingRoutes from "./routes/public-booking";
+import timelineRoutes from "./routes/timeline";
+import { requireFeature } from "./lib/features";
 import { objectRouter } from "./routes/object-routes";
 import { createObjectService } from "./lib/object-service";
 
@@ -42,7 +54,15 @@ registerObject({ type: "contact", uniqueFields: ["email"], eventPrefix: "contact
 registerObject({ type: "account", uniqueFields: ["name"], eventPrefix: "account", relations: [{ field: "parentId", type: "account" }] });
 // Phase 1 lead routing: round-robin over the admin-configured pool when no explicit owner.
 registerObject({ type: "lead", uniqueFields: ["email"], eventPrefix: "lead", routedEvent: true, assignOwner: async (user) => nextRoundRobinOwner(user.orgId) });
-registerObject({ type: "opportunity", eventPrefix: "deal" });
+// Phase 2-lite multi-pipeline: deals resolve their pipeline/stage/probability
+// from the org's pipelines (default pipeline when none specified).
+registerObject({
+  type: "opportunity",
+  eventPrefix: "deal",
+  relations: [{ field: "accountId", type: "account" }, { field: "pipelineId", type: "pipeline" }],
+  resolveDeal: async (user, input, before) =>
+    resolveDealContext(user.orgId, user.environment ?? "production", input, before),
+});
 registerObject({ type: "task", eventPrefix: "task" });
 registerObject({ type: "note", eventPrefix: "note", ownerField: "authorId" });
 
@@ -74,7 +94,25 @@ app.use("/api/auth/oauth", oauthRoutes);
 app.use("/api/segments", segmentRoutes);
 app.use("/api/lead-forms", leadFormRoutes);
 app.use("/api/merge", mergeRoutes);
+app.use("/api/pipelines", pipelineRoutes); // Phase 2-lite multi-pipeline admin
 app.use("/api/public", publicLeadRoutes); // unauthenticated lead-capture forms (Phase 1)
+
+// ── Phase 2 · Communication Core (email, calendar, calling, booking) ─────────
+app.use("/api/email-templates", emailTemplateRoutes);
+app.use("/api/emails", requireFeature("comm.email"), emailRoutes);
+app.use("/api/calls", requireFeature("comm.calling"), callRoutes);
+app.use("/api/meetings", requireFeature("comm.calendar"), meetingRoutes);
+app.use("/api/booking-pages", bookingPageRoutes);
+app.use("/api/timeline", timelineRoutes);
+// Public (no auth) — tracking pixels/click links + public booking pages.
+app.use("/api/t", trackingRoutes);
+app.use("/api/public/booking", publicBookingRoutes);
+// Mock call recording placeholder (Phase 2 — telephony provider is mocked, ADR-014).
+app.get("/api/mock/media/calls/:file", (_req, res) => {
+  res.setHeader("content-type", "audio/wav");
+  res.setHeader("content-disposition", "inline");
+  res.send(Buffer.from("UkVGRiAAAAAAV0FWRSBmbXRkAAAAAAABAgEAAAAAAwAA/8zMAAAAAABEQVRBAAAAAAA=", "base64"));
+});
 
 // One REST router per object type — all powered by the generic service.
 app.use("/api/contacts", objectRouter(createObjectService({ type: "contact" })));

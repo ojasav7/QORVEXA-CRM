@@ -352,8 +352,164 @@ model Lead {
   @@index([orgId, email])
 }
 
+// ── Phase 2 · Communication Core ───────────────────────────────────────────────
+// Email templates (Phase 2): reusable subject/body pairs with {{variable}}
+// merge fields (e.g. {{contact.firstName}}). Admin/manager managed.
+model EmailTemplate {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  name        String
+  category    String   @default("general") // general | sales | follow-up | marketing | internal
+  subject     String
+  body        String // plain-text + {{variable}} placeholders
+  active      Boolean  @default(true)
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// Email messages (Phase 2) — the org's mailbox: sent (out) + received (in).
+// Tracking: each outbound message gets a random trackingToken; the open pixel
+// and click-redirect endpoints (public, token-scoped) update status and emit
+// email.opened / email.clicked. `threadId` groups replies; a reply is a new
+// Message with direction "in" sharing the thread.
+model Message {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production") // ADR-008
+  direction     String   @default("out") // in | out
+  threadId      String // groups a conversation (set to own id on first send)
+  trackingToken String? // for outbound tracking (open pixel + click redirect)
+  fromEmail     String
+  toEmail       String
+  subject       String
+  body          String
+  status        String   @default("sent") // sent | opened | clicked | replied (best state reached)
+  openedAt      DateTime?
+  clickedAt     DateTime?
+  repliedAt     DateTime?
+  openedCount   Int      @default(0)
+  templateId    String?  @db.ObjectId // the EmailTemplate used (if any)
+  contactId     String?  @db.ObjectId // auto-log reference
+  accountId     String?  @db.ObjectId
+  opportunityId String?  @db.ObjectId
+  ownerId       String   @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, direction])
+  @@index([orgId, environment, contactId])
+  @@index([orgId, environment, threadId])
+}
+
+// Call log entries (Phase 2) — click-to-call + manual logging. When org
+// settings enable recording, a mock recordingUrl + basic transcription are
+// generated (real telephony provider integration is deferred; see ADR-014).
+model Call {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production") // ADR-008
+  direction     String   @default("out") // in | out
+  phone         String
+  durationSec   Int      @default(0)
+  status        String   @default("completed") // completed | no-answer | voicemail
+  recordingUrl  String?
+  transcript    String?
+  notes         String?
+  contactId     String?  @db.ObjectId // auto-log reference
+  accountId     String?  @db.ObjectId
+  opportunityId String?  @db.ObjectId
+  ownerId       String   @db.ObjectId
+  startedAt     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, contactId])
+  @@index([orgId, environment, ownerId])
+}
+
+// Meetings (Phase 2) — scheduled + completed meetings. Booking-page bookings
+// create meetings owned by the assigned (round-robin) host.
+model Meeting {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production") // ADR-008
+  title         String
+  startsAt      DateTime
+  endsAt        DateTime
+  status        String   @default("scheduled") // scheduled | completed | cancelled | no-show
+  location      String? // virtual | physical address | phone
+  notes         String?
+  attendeeName  String? // booking page attendee (public bookings)
+  attendeeEmail String?
+  contactId     String?  @db.ObjectId
+  accountId     String?  @db.ObjectId
+  opportunityId String?  @db.ObjectId
+  ownerId       String   @db.ObjectId // host
+  bookingPageId String?  @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, startsAt])
+  @@index([orgId, environment, ownerId])
+}
+
+// Public booking pages (Phase 2) — a shareable URL that lets prospects book a
+// meeting with the org. `hostPool` is a round-robin pool of user ids (mirrors
+// the lead-routing pattern); each booking advances a persisted cursor. Slots
+// are generated from durationMins + bufferMins over availableDays × start/end
+// hours (org timezone). Slug is the public URL handle, unique per org.
+model BookingPage {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  name         String
+  slug         String // url-safe, unique per org
+  description  String?
+  durationMins Int      @default(30)
+  bufferMins   Int      @default(5)
+  hostPool     Json     @default("[]") // user ids, round-robin assignment
+  cursor       Int      @default(0) // persisted round-robin position
+  availableDays Json    @default("[1,2,3,4,5]") // 0=Sun … 6=Sat
+  startHour    Int      @default(9) // 0-23, org local time
+  endHour      Int      @default(17)
+  timezone     String   @default("UTC")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+}
+
+// ── Phase 2-lite · Multi-pipeline ─────────────────────────────────────────────
+// A pipeline is per-org (× environment) deal-board config with its own stages
+// (key, label, probability, order). The org's DEFAULT pipeline is lazily seeded
+// from the static registry PIPELINE on first access, so existing orgs and new
+// orgs both get a working sales pipeline without a migration. Deals reference a
+// pipeline via Opportunity.pipelineId; NULL means "the org's default pipeline".
+model Pipeline {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  name        String
+  isDefault   Boolean  @default(false)
+  stages      Json     @default("[]") // [{ key, label, probability, order }]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, isDefault])
+}
+
 // Deal / opportunity pipeline. Stage moves emit deal.stage_changed events
 // and are audit-logged (event-sourced for the Phase-15 Time Machine).
+// pipelineId: which Pipeline this deal is on (null = org default).
 model Opportunity {
   id          String    @id @default(auto()) @map("_id") @db.ObjectId
   orgId       String    @db.ObjectId
@@ -361,11 +517,12 @@ model Opportunity {
   ownerId     String    @db.ObjectId
   accountId   String?   @db.ObjectId
   contactId   String?   @db.ObjectId
+  pipelineId  String?   @db.ObjectId // Phase 2-lite multi-pipeline
   promotedFrom String?  // id of the source record when copied by env promotion
   name        String
-  stage       String    @default("qualified") // see PIPELINE in server/lib/registry.ts
+  stage       String    @default("qualified") // a stage key of the deal's pipeline
   amount      Float     @default(0)
-  probability Int       @default(10) // %, stage-derived
+  probability Int       @default(10) // %, derived from the pipeline's stage
   closeDate   DateTime?
   winReason   String?
   lostReason  String?
@@ -379,6 +536,7 @@ model Opportunity {
   @@index([orgId])
   @@index([orgId, environment])
   @@index([orgId, stage])
+  @@index([orgId, pipelineId])
   @@index([orgId, ownerId])
 }
 

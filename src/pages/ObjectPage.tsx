@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Plus, Search, Pencil, Trash2, Download, Network, GitMerge } from "lucide-react";
 import { api, del, patch, post, downloadCsv, ApiError } from "../lib/api";
-import { OBJECT_META, type FieldSpec, type ObjectMeta } from "../lib/objects";
+import { OBJECT_META, type FieldSpec, type ObjectMeta, type Pipeline } from "../lib/objects";
 import { Badge, EmptyState, Field, Modal, Spinner } from "../components/ui";
 import { money, date } from "../lib/format";
 
@@ -55,6 +55,18 @@ export default function ObjectPage({ type }: { type: string }) {
     if (type !== "account") return;
     void api<{ items: { id: string; name: string }[] }>("/api/accounts?pageSize=500")
       .then((d) => setRelationOptions({ parentId: d.items.map((a) => ({ id: a.id, label: a.name })) }))
+      .catch(() => {});
+  }, [type]);
+
+  // Phase 2-lite multi-pipeline: pipeline options for the deal form.
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  useEffect(() => {
+    if (type !== "opportunity") return;
+    void api<{ items: Pipeline[] }>("/api/pipelines")
+      .then((d) => {
+        setPipelines(d.items);
+        setRelationOptions((prev) => ({ ...prev, pipelineId: d.items.map((p) => ({ id: p.id, label: p.name })) }));
+      })
       .catch(() => {});
   }, [type]);
 
@@ -171,6 +183,7 @@ export default function ObjectPage({ type }: { type: string }) {
           fields={fields}
           permMap={permMap}
           relationOptions={relationOptions}
+          pipelines={type === "opportunity" ? pipelines : undefined}
           initial={editing}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={async (row) => {
@@ -301,11 +314,12 @@ function statusTone(s: string): string {
   return map[s] ?? "default";
 }
 
-function ObjectForm({ meta, fields, permMap, relationOptions, initial, onClose, onSaved }: {
+function ObjectForm({ meta, fields, permMap, relationOptions, pipelines, initial, onClose, onSaved }: {
   meta: ObjectMeta;
   fields: { core: FieldSpec[]; custom: any[] };
   permMap: Record<string, FieldPermInfo>;
   relationOptions?: Record<string, { id: string; label: string }[]>;
+  pipelines?: Pipeline[];
   initial: Row | null;
   onClose: () => void;
   onSaved: (row: Row) => void;
@@ -342,10 +356,31 @@ function ObjectForm({ meta, fields, permMap, relationOptions, initial, onClose, 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
   const relOptions = relationOptions ?? {};
 
+  // Phase 2-lite: deal stage options cascade from the selected pipeline. The
+  // selected pipeline is the form's pipelineId (or the org default); the current
+  // stage is always included so editing a deal on another pipeline never shows
+  // a blank/broken select.
+  const stageOptionsFor = (): { id: string; label: string }[] | undefined => {
+    if (meta.type !== "opportunity" || !pipelines?.length) return undefined;
+    const def = pipelines.find((p) => p.id === form.pipelineId) ?? pipelines.find((p) => p.isDefault) ?? pipelines[0];
+    const opts = (def?.stages ?? []).map((s) => ({ id: s.key, label: s.label }));
+    if (form.stage && !opts.some((o) => o.id === form.stage)) opts.push({ id: form.stage, label: form.stage });
+    return opts;
+  };
+  const stageOptions = stageOptionsFor();
+
   return (
     <Modal open onClose={onClose} title={`${initial ? "Edit" : "New"} ${meta.label}`} wide>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {allFields.map((f) => <FormControl key={f.key} spec={f} value={form[f.key]} onChange={(v) => set(f.key, v)} options={relOptions[f.key]} />)}
+        {allFields.map((f) => (
+          <FormControl
+            key={f.key}
+            spec={f}
+            value={form[f.key]}
+            onChange={(v) => set(f.key, v)}
+            options={f.key === "stage" && stageOptions ? stageOptions : relOptions[f.key]}
+          />
+        ))}
       </div>
       {error && <div className="mt-4 rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
       <div className="mt-6 flex justify-end gap-2">

@@ -225,6 +225,25 @@ Admin-configured public forms that create **routed** leads in the org's producti
 
 **Embed:** point any page/form at `POST /api/public/forms/<slug>/submit` — the Settings → Lead capture tab shows a ready-to-paste snippet.
 
+## Pipelines (Phase 2-lite multi-pipeline)
+
+Per-org deal pipelines (org × environment scoped, ADR-008). The org's **default** pipeline is lazily seeded from the static registry on first access, so existing orgs get a working "Sales" pipeline without a migration. Deals reference a pipeline via `pipelineId` (NULL = the default pipeline). Writes are admin-only; reads are open to any authenticated user.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/pipelines` | Any auth. `{ items: [{ id, name, isDefault, stages: [{ key, label, probability, order }], dealCount }] }` — dealCount is live per pipeline. |
+| POST | `/api/pipelines` | Admin. `{ name, stages: [{ key?, label, probability? }], isDefault? }`. Keys auto-slugified from labels; first pipeline for the org becomes default. Emits `pipeline.created`. |
+| PATCH | `/api/pipelines/:id` | Admin. Rename / replace `stages` (wholesale) / `{ isDefault: true }` (demotes the current default). Emits `pipeline.updated`. |
+| DELETE | `/api/pipelines/:id` | Admin. **Guards:** cannot delete the default pipeline, the only pipeline, or one that still has deals. Emits `pipeline.deleted`. |
+
+**Deal pipeline semantics** (`POST/PATCH /api/opportunities`):
+- `pipelineId` omitted on create → the org's default pipeline; a deal with `pipelineId: null` (legacy) belongs to the default pipeline in list filters.
+- `stage` must exist in the deal's pipeline → otherwise 400; probability is **derived from the pipeline's stage definition** (not the static registry).
+- Moving a deal between pipelines (`PATCH { pipelineId }`) keeps a valid stage, re-derives probability, and emits `deal.pipeline_changed` (`{ from, to }`).
+- `GET /api/opportunities?pipelineId=<id>` filters the board; filtering by the default pipeline also returns legacy `null`-pipeline deals.
+
+**Backfill:** `npm run backfill:pipeline` stamps pre-schema deals (which carry no `pipelineId` field) onto their org's default pipeline — required once after `db:push` on existing databases (same pattern as `backfill:env`).
+
 ## Duplicate merge (Phase 1)
 
 Merges two records of the same type into a master, choosing per-field which record wins.

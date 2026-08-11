@@ -62,6 +62,15 @@ webhook.created        org.created
 | `segment.created` / `updated` / `deleted` | Dynamic segment lifecycle (admin) | `{ objectType, name }` |
 | `leadform.created` / `updated` / `deleted` | Public lead-capture form lifecycle (admin) | `{ name, slug }` |
 
+## Phase 2-lite events (multi-pipeline)
+
+| Event | When | Payload |
+|---|---|---|
+| `pipeline.created` | Admin creates a pipeline | `{ name, isDefault }` |
+| `pipeline.updated` | Admin renames / edits stages / makes it default | `{ name, isDefault }` |
+| `pipeline.deleted` | Admin deletes a pipeline (guarded) | `{ name }` |
+| `deal.pipeline_changed` | A deal was moved between pipelines | `{ from, to }` (pipeline ids; `null` = was on the default) |
+
 > `task.completed` is reserved: it will fire when a task moves to `done` (the service currently emits `task.updated`; the dedicated event lands with Phase 3 automation so listeners aren't overloaded).
 
 ## Consumers

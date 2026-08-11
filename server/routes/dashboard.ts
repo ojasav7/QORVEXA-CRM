@@ -5,6 +5,7 @@ import { asyncHandler, ok } from "../lib/http";
 import { listWhere } from "../lib/access";
 import { PIPELINE } from "../lib/registry";
 import { resolveEnvironment } from "../lib/environment";
+import { pipelineStages } from "../lib/pipelines";
 
 const router = Router();
 
@@ -28,7 +29,14 @@ router.get(
         db().task.count({ where: { ...scope, status: { not: "done" }, dueAt: { lt: new Date() } } }),
       ]);
 
-    const pipeline = PIPELINE.map((p) => {
+    // Phase 2-lite: the snapshot reflects the org's DEFAULT pipeline stages
+    // (falling back to the static registry PIPELINE for safety).
+    const stages = (await pipelineStages(user.orgId, scoped.environment ?? "production")).map((s) => ({
+      stage: s.key,
+      probability: s.probability,
+    }));
+    const snapshot = stages.length ? stages : PIPELINE;
+    const pipeline = snapshot.map((p) => {
       const deals = pipelineRaw.filter((d) => d.stage === p.stage);
       return { stage: p.stage, probability: p.probability, count: deals.length, amount: deals.reduce((s, d) => s + d.amount, 0) };
     });

@@ -14,6 +14,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "backfill:env": "tsx server/scripts/backfill-environment.ts",
+    "backfill:pipeline": "tsx server/scripts/backfill-pipeline.ts",
     "seed": "tsx server/seed.ts",
     "mongo:up": "docker compose up -d mongo",
     "mongo:down": "docker compose down"

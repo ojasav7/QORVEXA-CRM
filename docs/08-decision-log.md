@@ -27,6 +27,7 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 | ADR-010 | Lead routing = admin-configured round-robin pool, explicit owner always wins | Accepted |
 | ADR-011 | Duplicate merge = master/merge with per-field choices | Accepted |
 | ADR-012 | Public lead forms = unauthenticated + honeypot + rate limit + no-leak dedupe | Accepted |
+| ADR-013 | Multi-pipeline = `Pipeline`/`PipelineStage` models, lazily seeded default, pipeline-derived probability | Accepted |
 
 ---
 
@@ -248,6 +249,32 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 - (+) Embeddable anywhere, works without auth, and abuse is mitigated cheaply.
 - (−) In-memory rate limit resets on restart and is per-instance (fine for Phase 1; a shared limiter lands with Phase 3 infrastructure).
 - (−) No CAPTCHA/email verification yet — revisit if spam volume demands it.
+
+---
+
+## Amendments (2026-08-11 — Phase 2-lite completion)
+
+> Phase 2-lite shipped the multi-pipeline engine (pipeline CRUD + per-org config), the cheapest new capability on the roadmap — the registry already parameterized the pipeline, so this formalized it into first-class per-org data.
+
+## ADR-013 · Multi-pipeline — Pipeline/PipelineStage models, lazily seeded default, pipeline-derived probability
+
+**Status:** Accepted
+
+**Context:** The blueprint (Phase 2) lists `Pipeline`/`PipelineStage` as entities and calls for a multi-pipeline engine (sales, renewal, expansion, partner, custom). The registry's static `PIPELINE` was already the pipeline source for deals — but it was global, not per-org, and stages couldn't be edited.
+
+**Decision:**
+- **Models:** `Pipeline` (org × environment, name, isDefault) with stages as a JSON array on the row (`PipelineStage` shape `{ key, label, probability, order }`) — MongoDB/no-relations convention (same collapse as `LeadForm.fields` / `Segment.criteria`).
+- **Default seeding:** the org's **default** pipeline is lazily created from the static registry `PIPELINE` on first access (`ensureDefaultPipeline`) — existing orgs and new orgs both get a working "Sales" pipeline with zero migrations; the registry PIPELINE remains the fallback seed source, not a runtime authority.
+- **Deals:** `Opportunity.pipelineId` (ObjectId, NULL = the org's default pipeline). The generic service gained a `resolveDeal` config hook (same pattern as Phase 1's `assignOwner`): it resolves pipeline (explicit → else default), validates the stage exists in that pipeline (400 otherwise), and **derives probability from the pipeline's stage definition** — the registry's `stageProbability()` is no longer consulted for deals.
+- **Guards:** can't delete the default pipeline, the only pipeline, or one that still has deals.
+- **Backfill:** `npm run backfill:pipeline` stamps pre-schema deals (missing `pipelineId` field) onto the default at the RAW level (`$runCommandRaw` + `$oid` — Prisma WHERE filters don't match missing fields, and `$oid` matches how Prisma stores ObjectIds).
+
+**Consequences:**
+- (+) Every org owns its pipeline shape; the deals board + form + dashboard all read from it (dashboard snapshot uses the default pipeline's stages).
+- (+) `deal.pipeline_changed` (`{ from, to }`) is event-sourced for later forecasting/BI (Phase 6).
+- (+) Probability consistency: a stage's number lives in one place (the pipeline), not duplicated in registry + seed + UI.
+- (−) Stages are JSON, not a relational table — pipeline CRUD replaces the whole array (fine; atomic and simple at this scale).
+- (−) Legacy deals need the backfill before pipeline-scoped filters show them (documented in `docs/05-api-reference.md` and the runbook).
 
 ## Engineering note · Zod `.default()` leaks through `.partial()` on PATCH
 

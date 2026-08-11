@@ -45,6 +45,27 @@ export const KNOWN_FEATURES: FeatureDef[] = [
     enabledDefault: true,
     plans: ["pro", "enterprise"],
   },
+  {
+    key: "comm.email",
+    label: "Email & templates",
+    description: "Phase 2 email — compose with templates, mock inbox sync, and open/click/reply tracking.",
+    enabledDefault: true,
+    plans: ["free", "pro", "enterprise"],
+  },
+  {
+    key: "comm.calendar",
+    label: "Calendar & booking",
+    description: "Phase 2 meetings — calendar view, scheduling, and public booking pages with round-robin hosts.",
+    enabledDefault: true,
+    plans: ["free", "pro", "enterprise"],
+  },
+  {
+    key: "comm.calling",
+    label: "Calling",
+    description: "Phase 2 calls — click-to-call and call logging with optional recording + transcription (mock provider).",
+    enabledDefault: true,
+    plans: ["free", "pro", "enterprise"],
+  },
 ];
 
 export type FeatureState = FeatureDef & { enabled: boolean; source: "settings" | "featureFlag" | "default" };

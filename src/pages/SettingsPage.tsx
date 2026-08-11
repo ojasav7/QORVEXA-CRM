@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Copy, Check, KeyRound, GitBranch, RefreshCcw, ArrowRight, Database, Flag, HardDriveDownload, Shield, Globe, KeySquare, Route as RouteIcon, ClipboardList, Share2 } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Pencil, KeyRound, GitBranch, RefreshCcw, ArrowRight, Database, Flag, HardDriveDownload, Shield, Globe, KeySquare, Route as RouteIcon, ClipboardList, Share2, Layers, ArrowUp, ArrowDown, Star } from "lucide-react";
 import { api, del, patch, post, ApiError, type User, type Org } from "../lib/api";
 import { Badge, Field, Modal, Spinner } from "../components/ui";
 import { useSession } from "../App";
@@ -13,7 +13,7 @@ type Webhook = { id: string; url: string; events: string[]; secret: string; acti
 
 export default function SettingsPage() {
   const { user, org, refresh } = useSession();
-  const [tab, setTab] = useState<"team" | "fields" | "webhooks" | "environments" | "flags" | "backups" | "tokens" | "routing" | "forms">("team");
+  const [tab, setTab] = useState<"team" | "fields" | "webhooks" | "environments" | "flags" | "backups" | "tokens" | "routing" | "forms" | "pipelines">("team");
   const isAdmin = user?.role === "admin";
 
   const tabs: [string, string][] = [
@@ -26,6 +26,7 @@ export default function SettingsPage() {
     ["tokens", "API tokens"],
     ["routing", "Lead routing"],
     ["forms", "Lead capture"],
+    ["pipelines", "Pipelines"],
   ];
 
   return (
@@ -52,6 +53,7 @@ export default function SettingsPage() {
       {tab === "tokens" && (isAdmin ? <TokensTab /> : <NotAdmin />)}
       {tab === "routing" && (isAdmin ? <LeadRoutingTab /> : <NotAdmin />)}
       {tab === "forms" && (isAdmin ? <LeadCaptureTab /> : <NotAdmin />)}
+      {tab === "pipelines" && (isAdmin ? <PipelinesTab /> : <NotAdmin />)}
     </div>
   );
 }
@@ -287,6 +289,209 @@ function FormModal({ onClose, onDone }: { onClose: () => void; onDone: () => voi
         <div className="flex justify-end gap-2">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={submit} disabled={busy || !form.name.trim()}>{busy ? <Spinner className="size-4" /> : "Create form"}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Pipelines (Phase 2-lite multi-pipeline) ──────────────────────────────────
+type PipelineRow = { id: string; name: string; isDefault: boolean; stages: { key: string; label: string; probability: number }[]; dealCount?: number };
+
+type StageDraft = { key: string; label: string; probability: number };
+
+function PipelinesTab() {
+  const [pipelines, setPipelines] = useState<PipelineRow[]>([]);
+  const [editing, setEditing] = useState<PipelineRow | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api<{ items: PipelineRow[] }>("/api/pipelines");
+      setPipelines(d.items);
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed to load pipelines" });
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const setDefault = async (p: PipelineRow) => {
+    setBusy(`def-${p.id}`); setMsg(null);
+    try {
+      await patch(`/api/pipelines/${p.id}`, { isDefault: true });
+      setMsg({ kind: "ok", text: `"${p.name}" is now the default pipeline.` });
+      await load();
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (p: PipelineRow) => {
+    if (!confirm(`Delete pipeline "${p.name}"? Deals must be moved off it first.`)) return;
+    setBusy(`del-${p.id}`); setMsg(null);
+    try {
+      await del(`/api/pipelines/${p.id}`);
+      setMsg({ kind: "ok", text: `Pipeline "${p.name}" deleted.` });
+      await load();
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof ApiError ? e.message : "Failed" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Deal pipelines are per-org config — each has its own stages and probabilities. The default pipeline drives the deals board and dashboard snapshot.</p>
+        <button className="btn-primary" onClick={() => setCreating(true)}><Layers className="size-4" /> New pipeline</button>
+      </div>
+
+      <div className="card divide-y divide-white/[0.04]">
+        {pipelines.map((p) => (
+          <div key={p.id} className="px-6 py-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <Layers className={`size-4 ${p.isDefault ? "text-accent-400" : "text-slate-600"}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">{p.name}</span>
+                  {p.isDefault && <Badge tone="blue">default</Badge>}
+                  {p.dealCount !== undefined && <span className="text-xs text-slate-600">{p.dealCount} deal{p.dealCount === 1 ? "" : "s"}</span>}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {p.stages.map((s, i) => (
+                    <span key={s.key} className="chip bg-white/[0.06] text-slate-400">
+                      {i + 1}. {s.label} <span className="ml-1 tabular-nums text-accent-300">{s.probability}%</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {!p.isDefault && (
+                <button className="btn-ghost !px-3 !py-1.5" disabled={busy === `def-${p.id}`} onClick={() => void setDefault(p)}>
+                  {busy === `def-${p.id}` ? <Spinner className="size-3.5" /> : <Star className="size-3.5" />} Set default
+                </button>
+              )}
+              <button className="btn-ghost !px-3 !py-1.5" onClick={() => setEditing(p)}><Pencil className="size-3.5" /> Edit</button>
+              <button onClick={() => void remove(p)} className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"><Trash2 className="size-4" /></button>
+            </div>
+          </div>
+        ))}
+        {pipelines.length === 0 && <div className="p-8 text-center text-sm text-slate-600">No pipelines yet — create one to get a deals board.</div>}
+      </div>
+      {msg && <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${msg.kind === "ok" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>{msg.text}</div>}
+
+      {(creating || editing) && (
+        <PipelineModal
+          initial={editing}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onDone={async () => { setCreating(false); setEditing(null); await load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PipelineModal({ initial, onClose, onDone }: { initial: PipelineRow | null; onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [stages, setStages] = useState<StageDraft[]>(() =>
+    initial?.stages?.length
+      ? initial.stages.map((s) => ({ key: s.key, label: s.label, probability: s.probability }))
+      : [
+          { key: "discovery", label: "Discovery", probability: 10 },
+          { key: "qualified", label: "Qualified", probability: 25 },
+          { key: "proposal", label: "Proposal", probability: 50 },
+          { key: "negotiation", label: "Negotiation", probability: 75 },
+          { key: "won", label: "Won", probability: 100 },
+          { key: "lost", label: "Lost", probability: 0 },
+        ]
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+
+  const updateStage = (i: number, patch2: Partial<StageDraft>) =>
+    setStages((ss) => ss.map((s, idx) => {
+      if (idx !== i) return s;
+      const next = { ...s, ...patch2 };
+      // Derive a key from the label ONLY for placeholder keys (newly added
+      // stages). Editing an existing stage's label must not change its key —
+      // deals reference stage keys, so renaming would orphan them (ADR-013).
+      if (patch2.label !== undefined && /^stage_\d+$/.test(s.key)) {
+        next.key = slugify(patch2.label) || s.key;
+      }
+      return next;
+    }));
+  const removeStage = (i: number) => setStages((ss) => ss.filter((_, idx) => idx !== i));
+  const moveStage = (i: number, dir: -1 | 1) => {
+    setStages((ss) => {
+      const j = i + dir;
+      if (j < 0 || j >= ss.length) return ss;
+      const next = [...ss];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
+  const addStage = () => setStages((ss) => [...ss, { key: `stage_${ss.length + 1}`, label: "", probability: 10 }]);
+
+  const submit = async () => {
+    if (!name.trim()) return setError("Pipeline needs a name");
+    if (stages.some((s) => !s.label.trim())) return setError("Every stage needs a label");
+    setBusy(true); setError(null);
+    try {
+      const body = { name: name.trim(), stages: stages.map((s) => ({ key: s.key, label: s.label.trim(), probability: Number(s.probability) || 0 })) };
+      if (initial) await patch(`/api/pipelines/${initial.id}`, body);
+      else await post("/api/pipelines", body);
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={initial ? `Edit pipeline — ${initial.name}` : "New pipeline"} wide>
+      <div className="space-y-4">
+        <Field label="Pipeline name" required>
+          <input className="input" placeholder="e.g. Renewals" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Stages</span>
+            <button className="btn-ghost !px-3 !py-1" onClick={addStage}><Plus className="size-3.5" /> Add stage</button>
+          </div>
+          <div className="space-y-2">
+            {stages.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-xl bg-ink-800/50 border border-white/[0.05] px-3 py-2">
+                <span className="w-6 text-center text-xs tabular-nums text-slate-600">{i + 1}</span>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <input className="input !py-1.5" placeholder="Stage label" value={s.label} onChange={(e) => updateStage(i, { label: e.target.value })} />
+                  <div className="flex w-28 shrink-0 items-center gap-1">
+                    <input className="input !py-1.5 tabular-nums" type="number" min={0} max={100} value={s.probability} onChange={(e) => updateStage(i, { probability: Number(e.target.value) || 0 })} />
+                    <span className="text-xs text-slate-500">%</span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <button onClick={() => moveStage(i, -1)} disabled={i === 0} className="rounded p-1 text-slate-500 hover:text-white disabled:opacity-30"><ArrowUp className="size-3.5" /></button>
+                  <button onClick={() => moveStage(i, 1)} disabled={i === stages.length - 1} className="rounded p-1 text-slate-500 hover:text-white disabled:opacity-30"><ArrowDown className="size-3.5" /></button>
+                  <button onClick={() => removeStage(i)} className="rounded p-1 text-slate-600 hover:text-rose-400"><Trash2 className="size-3.5" /></button>
+                </div>
+              </div>
+            ))}
+            {stages.length === 0 && <div className="rounded-xl border border-dashed border-white/[0.06] py-6 text-center text-xs text-slate-600">Add at least one stage.</div>}
+          </div>
+        </div>
+
+        {error && <div className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={submit} disabled={busy}>{busy ? <Spinner className="size-4" /> : initial ? "Save pipeline" : "Create pipeline"}</button>
         </div>
       </div>
     </Modal>
