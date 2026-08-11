@@ -14,6 +14,12 @@ import ImportPage from "./pages/ImportPage";
 import SegmentsPage from "./pages/SegmentsPage";
 import AccountHierarchyPage from "./pages/AccountHierarchyPage";
 import FormPage from "./pages/FormPage";
+import EmailPage from "./pages/EmailPage";
+import EmailTemplatesPage from "./pages/EmailTemplatesPage";
+import CallsPage from "./pages/CallsPage";
+import MeetingsPage from "./pages/MeetingsPage";
+import BookingPagesPage from "./pages/BookingPagesPage";
+import PublicBookingPage from "./pages/PublicBookingPage";
 
 export type FeatureState = {
   enabled: boolean;
@@ -104,6 +110,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={session.user ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/forms/:slug" element={<FormPage />} />
+        <Route path="/b/:slug" element={<PublicBookingPage />} />
         <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Dashboard />} />
           <Route path="contacts" element={<ObjectPage type="contact" />} />
@@ -113,6 +120,11 @@ export default function App() {
           <Route path="leads" element={<ObjectPage type="lead" />} />
           <Route path="deals" element={<DealsPage />} />
           <Route path="activities" element={<ActivitiesPage />} />
+          <Route path="emails" element={<EmailPage />} />
+          <Route path="emails/templates" element={<EmailTemplatesPage />} />
+          <Route path="calls" element={<CallsPage />} />
+          <Route path="meetings" element={<MeetingsPage />} />
+          <Route path="booking" element={<BookingPagesPage />} />
           <Route path="events" element={<EventsPage />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="settings" element={<SettingsPage />} />

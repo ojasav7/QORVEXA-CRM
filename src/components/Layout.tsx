@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Building2, Target, Briefcase, CheckSquare,
   Activity, Settings, LogOut, Search, Menu, X, Upload, GitBranch, ListFilter,
+  Mail, Phone, CalendarDays, CalendarClock, FileText,
 } from "lucide-react";
 import { useSession, useFeature } from "../App";
 import { post } from "../lib/api";
@@ -24,6 +25,9 @@ const NAV = [
 export default function Layout() {
   const { user, org, environment, environments, setEnvironment } = useSession();
   const showImport = useFeature("import.merge");
+  const showEmail = useFeature("comm.email");
+  const showCalling = useFeature("comm.calling");
+  const showCalendar = useFeature("comm.calendar");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -86,6 +90,39 @@ export default function Layout() {
               Import
             </NavLink>
           )}
+          {(showEmail || showCalling || showCalendar) && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Communications</div>
+          )}
+          {showEmail && (
+            <NavLink to="/emails" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Mail className="size-4" />
+              Email
+            </NavLink>
+          )}
+          {showEmail && (
+            <NavLink to="/emails/templates" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <FileText className="size-4" />
+              Templates
+            </NavLink>
+          )}
+          {showCalling && (
+            <NavLink to="/calls" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Phone className="size-4" />
+              Calls
+            </NavLink>
+          )}
+          {showCalendar && (
+            <NavLink to="/meetings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <CalendarDays className="size-4" />
+              Calendar
+            </NavLink>
+          )}
+          {showCalendar && (
+            <NavLink to="/booking" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <CalendarClock className="size-4" />
+              Booking
+            </NavLink>
+          )}
           <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
             <Settings className="size-4" />
             Settings
@@ -126,6 +163,34 @@ export default function Layout() {
               {showImport && (
                 <NavLink to="/import" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
                   <Upload className="size-4" /> Import
+                </NavLink>
+              )}
+              {(showEmail || showCalling || showCalendar) && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Communications</div>
+              )}
+              {showEmail && (
+                <NavLink to="/emails" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Mail className="size-4" /> Email
+                </NavLink>
+              )}
+              {showEmail && (
+                <NavLink to="/emails/templates" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <FileText className="size-4" /> Templates
+                </NavLink>
+              )}
+              {showCalling && (
+                <NavLink to="/calls" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Phone className="size-4" /> Calls
+                </NavLink>
+              )}
+              {showCalendar && (
+                <NavLink to="/meetings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <CalendarDays className="size-4" /> Calendar
+                </NavLink>
+              )}
+              {showCalendar && (
+                <NavLink to="/booking" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <CalendarClock className="size-4" /> Booking
                 </NavLink>
               )}
               <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>

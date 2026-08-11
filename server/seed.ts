@@ -9,6 +9,7 @@ import { PIPELINE } from "./lib/registry";
 import { stageProbability } from "./lib/registry";
 import { emitEvent } from "./lib/events";
 import { ensureDefaultPipeline, listPipelines, slugifyStageKey } from "./lib/pipelines";
+import { trackingToken } from "./lib/comm";
 
 const ORG_EMAIL = "admin@qorvexa.dev";
 const ORG_NAME = "Qorvexa Demo Inc";
@@ -175,6 +176,106 @@ async function main() {
     await p.task.create({ data: { orgId, ownerId: leo.id, title: t.title, dueAt: new Date(Date.now() + t.dueInDays * 86_400_000), priority: t.priority, status: t.status, tags: [], visibility: "org", custom: {} } });
   }
   await p.note.create({ data: { orgId, authorId: leo.id, accountId: accounts["Northwind Traders"], body: "Elena wants a security review before we close. Shared the SOC2 report." } });
+
+  // ── Phase 2 · Communication Core (email templates, messages, calls, meetings, booking) ──
+  // Email templates (idempotent by name)
+  const templateSeeds = [
+    {
+      name: "Intro call follow-up",
+      category: "follow-up",
+      subject: "Great talking — next steps",
+      body: "Hi {{contact.firstName}},\n\nThanks for the time today. As promised, here's the next step for {{account.name}}:\n\n- Proposal & pricing → this week\n- Security questionnaire → shared separately\n\nTalk soon,\nLeo",
+    },
+    {
+      name: "Proposal sent",
+      category: "sales",
+      subject: "Proposal for {{account.name}} — {{deal.name}}",
+      body: "Hi {{contact.firstName}},\n\nAttached is our proposal for {{deal.name}} ({{deal.amount}}). We'd love to walk through it whenever suits.\n\nBest,\nLeo",
+    },
+    {
+      name: "Renewal reminder",
+      category: "marketing",
+      subject: "Your {{account.name}} renewal is coming up",
+      body: "Hi {{contact.firstName}},\n\nYour {{account.name}} renewal is due soon. Let's find a time to review usage and pricing.\n\nThanks,\nThe Qorvexa team",
+    },
+  ];
+  for (const t of templateSeeds) {
+    const existing = await p.emailTemplate.findFirst({ where: { orgId, name: t.name } });
+    if (existing) continue;
+    await p.emailTemplate.create({ data: { orgId, environment: "production", name: t.name, category: t.category, subject: t.subject, body: t.body, active: true, createdBy: leo.id } });
+  }
+
+  // A sent email (with tracking token) + a received reply thread, auto-logged to a contact.
+  const elena = await p.contact.findFirst({ where: { orgId, email: "elena@northwind.example" } });
+  const marcus = await p.contact.findFirst({ where: { orgId, email: "marcus@globex.example" } });
+  const northwindDeal = await p.opportunity.findFirst({ where: { orgId, name: "Northwind — Retail Platform Expansion" } });
+  if (elena && !(await p.message.findFirst({ where: { orgId, subject: "Great talking — next steps" } }))) {
+    const thread = trackingToken();
+    await p.message.create({
+      data: {
+        orgId, environment: "production", direction: "out", threadId: thread, trackingToken: trackingToken(),
+        fromEmail: leo.email, toEmail: elena.email!, subject: "Great talking — next steps",
+        body: "Hi Elena,\n\nThanks for the time today. Here's the next step for Northwind Traders:\n\n- Proposal & pricing → this week\n- Security questionnaire → shared separately\n\nTalk soon,\nLeo",
+        status: "sent", ownerId: leo.id, contactId: elena.id, opportunityId: northwindDeal?.id ?? null,
+        createdAt: new Date(Date.now() - 86_400_000),
+      },
+    });
+  }
+  if (marcus && !(await p.message.findFirst({ where: { orgId, subject: "Re: Qorvexa trial feedback" } }))) {
+    await p.message.create({
+      data: {
+        orgId, environment: "production", direction: "in", threadId: trackingToken(),
+        fromEmail: "marcus@globex.example", toEmail: leo.email, subject: "Re: Qorvexa trial feedback",
+        body: "The pipeline view is great. Could you send over the pricing page again?",
+        status: "sent", ownerId: leo.id, contactId: marcus.id,
+        createdAt: new Date(Date.now() - 3_600_000),
+      },
+    });
+  }
+
+  // Call log demo (one completed call, recording + transcript via mock provider).
+  if (elena && !(await p.call.findFirst({ where: { orgId, phone: "+1 212 555 0111" } }))) {
+    await p.call.create({
+      data: {
+        orgId, environment: "production", direction: "out", phone: "+1 212 555 0111", durationSec: 642,
+        status: "completed", notes: "Elena wants a security review before closing. Shared SOC2 report.",
+        contactId: elena.id, ownerId: leo.id, startedAt: new Date(Date.now() - 48 * 3_600_000),
+        recordingUrl: "/api/mock/media/calls/demo.wav",
+        transcript: "You: Thanks for taking the time to talk today.\nElena: We're focused on reducing manual data entry.\nYou: I'll send over a proposal with next steps by end of week.",
+      },
+    });
+  }
+
+  // Meetings — one upcoming scheduled, one completed.
+  if (elena && !(await p.meeting.findFirst({ where: { orgId, title: "Northwind — security review" } }))) {
+    await p.meeting.create({
+      data: {
+        orgId, environment: "production", title: "Northwind — security review",
+        startsAt: new Date(Date.now() + 2 * 86_400_000), endsAt: new Date(Date.now() + 2 * 86_400_000 + 30 * 60_000),
+        status: "scheduled", location: "virtual", contactId: elena.id, ownerId: leo.id,
+      },
+    });
+  }
+  if (marcus && !(await p.meeting.findFirst({ where: { orgId, title: "Globex — trial review" } }))) {
+    await p.meeting.create({
+      data: {
+        orgId, environment: "production", title: "Globex — trial review",
+        startsAt: new Date(Date.now() - 2 * 86_400_000), endsAt: new Date(Date.now() - 2 * 86_400_000 + 30 * 60_000),
+        status: "completed", location: "virtual", contactId: marcus.id, ownerId: leo.id,
+      },
+    });
+  }
+
+  // One public booking page (host pool = managers + reps, round-robin).
+  if (!(await p.bookingPage.findFirst({ where: { orgId, slug: "intro-call" } }))) {
+    await p.bookingPage.create({
+      data: {
+        orgId, name: "Intro call — Qorvexa", slug: "intro-call", description: "A 30-minute intro call to see QORVEXA in action.",
+        durationMins: 30, bufferMins: 5, hostPool: [priya.id, leo.id], cursor: 0,
+        availableDays: [1, 2, 3, 4, 5], startHour: 9, endHour: 17, timezone: "UTC", active: true,
+      },
+    });
+  }
 
   console.log(`✓ Seeded demo org "${ORG_NAME}"`);
   console.log(`  Login → admin@qorvexa.dev / password123`);

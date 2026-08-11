@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Plus, Search, Pencil, Trash2, Download, Network, GitMerge } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Download, Network, GitMerge, StickyNote, Mail, Phone, CalendarDays } from "lucide-react";
 import { api, del, patch, post, downloadCsv, ApiError } from "../lib/api";
 import { OBJECT_META, type FieldSpec, type ObjectMeta, type Pipeline } from "../lib/objects";
 import { Badge, EmptyState, Field, Modal, Spinner } from "../components/ui";
@@ -440,17 +440,32 @@ function FormControl({ spec, value, onChange, options }: { spec: FieldSpec; valu
   );
 }
 
+type TimelineEntry = { kind: "note" | "email" | "call" | "meeting"; id: string; title: string; subtitle: string; createdAt: string };
+
 function DetailPanel({ row, meta, fields, visibleColumns, onClose, onEdit, onDeleted }: {
   row: Row; meta: ObjectMeta; fields: { core: FieldSpec[]; custom: any[] }; visibleColumns: string[]; onClose: () => void; onEdit: () => void; onDeleted: () => void;
 }) {
   const [notes, setNotes] = useState<any[]>([]);
   const [noteBody, setNoteBody] = useState("");
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
 
   useEffect(() => {
     void api<{ items: any[] }>(`/api/notes?pageSize=20`).then((d) => {
       setNotes(d.items.filter((n: any) => n.contactId === row.id || n.accountId === row.id || n.opportunityId === row.id));
     }).catch(() => {});
   }, [row.id]);
+
+  // Phase 2 auto-logging: every email/call/meeting/note against this record,
+  // newest first, from the aggregated timeline endpoint. `cancelled` guards
+  // against a stale response when the user switches records quickly.
+  useEffect(() => {
+    const ref = meta.type === "account" ? "accountId" : meta.type === "opportunity" ? "opportunityId" : "contactId";
+    let cancelled = false;
+    void api<{ items: TimelineEntry[] }>(`/api/timeline?${ref}=${row.id}&limit=30`)
+      .then((d) => { if (!cancelled) setTimeline(d.items); })
+      .catch(() => { if (!cancelled) setTimeline([]); });
+    return () => { cancelled = true; };
+  }, [row.id, meta.type]);
 
   // Post the note against the correct reference field for this object type.
   const addNote = async () => {
@@ -483,6 +498,28 @@ function DetailPanel({ row, meta, fields, visibleColumns, onClose, onEdit, onDel
             <span className="text-sm text-slate-200">{String(v)}</span>
           </div>
         ))}
+      </div>
+
+      <div className="mt-6">
+        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Timeline <span className="text-slate-600">(auto-logged)</span></div>
+        <div className="max-h-72 space-y-2 overflow-y-auto">
+          {timeline.map((t) => (
+            <div key={`${t.kind}-${t.id}`} className="flex items-start gap-3 rounded-xl bg-ink-800/50 border border-white/[0.05] px-4 py-3">
+              <div className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg ${t.kind === "email" ? "bg-accent-500/15 text-accent-300" : t.kind === "call" ? "bg-mint-500/15 text-mint-400" : t.kind === "meeting" ? "bg-violet-500/15 text-violet-400" : "bg-white/[0.06] text-slate-500"}`}>
+                {t.kind === "email" ? <Mail className="size-3.5" /> : t.kind === "call" ? <Phone className="size-3.5" /> : t.kind === "meeting" ? <CalendarDays className="size-3.5" /> : <StickyNote className="size-3.5" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm text-slate-200">{t.title}</span>
+                  <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-slate-600">{t.kind}</span>
+                </div>
+                <p className="truncate text-xs text-slate-500">{t.subtitle}</p>
+                <p className="mt-0.5 text-[11px] text-slate-700">{new Date(t.createdAt).toLocaleString()}</p>
+              </div>
+            </div>
+          ))}
+          {timeline.length === 0 && <p className="text-xs text-slate-600">No activity yet — emails, calls and meetings against this record appear here automatically.</p>}
+        </div>
       </div>
 
       <div className="mt-6">
