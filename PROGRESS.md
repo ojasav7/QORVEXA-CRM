@@ -4,7 +4,7 @@
 > Status cross-references the blueprint (`QORVEXAThe intelligent operating system for business.md`)
 > and what's actually verified in this repo. **Effort estimates are rough build-days for one developer.**
 
-<!-- Last updated: 2026-08-11 (Phase 2: Communication Core complete) -->
+<!-- Last updated: 2026-08-12 (Phase 2 re-verified live: 45/45 + 29/29 + 30/30 green) -->
 
 ## Summary
 
@@ -74,7 +74,7 @@
 - **Feature-gated** — `comm.email` / `comm.calling` / `comm.calendar` flags (all default-on) gate the API (`requireFeature`) and nav.
 - **Blueprint docs** — communication integration guide (`docs/14-communication-guide.md`), calling/recording compliance notes (`docs/14-calling-compliance.md`), pipeline builder guide (`docs/14-pipeline-builder-guide.md`).
 
-**Verified by:** `npm run typecheck` + `npm run build` green; live curl smoke suite `verify-phase2-comm.sh` (email templates CRUD, template-merge send with tracking, sync/reply, open+click tracking events, calls with recording, meetings lifecycle, booking-page CRUD + public slot/book flow incl. double-booking guard + honeypot + rate limit, timeline aggregation, rep 403s) plus `verify-phase2.sh` (29/29) and `verify-phase1.sh` (30/30) regressions — see the build report.
+**Verified by:** `npm run typecheck` + `npm run build` green; live curl smoke suite `verify-phase2-comm.sh` (email templates CRUD, template-merge send with tracking, sync/reply, open+click tracking events, calls with recording, meetings lifecycle, booking-page CRUD + public slot/book flow incl. double-booking guard + honeypot + rate limit, timeline aggregation, rep 403s) plus `verify-phase2.sh` (29/29) and `verify-phase1.sh` (30/30) regressions — see the build report. **Re-verified 2026-08-12** against a freshly booted stack (clean DB drop → push → seed): `verify-phase2-comm.sh` 45/45, `verify-phase2.sh` 29/29, `verify-phase1.sh` 30/30; demo data left pristine (5 contacts / 4 leads / 4 accounts / 7 deals / 0 segments / 0 forms / 2 pipelines / 3 templates / 2 messages / 1 call / 2 meetings / 1 booking page).
 
 ---
 
