@@ -75,7 +75,7 @@ export default function FormPage() {
     <div className="flex min-h-full items-center justify-center p-4">
       <div className="card w-full max-w-md animate-fade-up p-8">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-violet-500 text-2xl font-bold text-white shadow-xl shadow-accent-500/30">Q</div>
+          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-violet-500 text-2xl font-bold text-on-brand shadow-xl shadow-accent-500/30">Q</div>
           <h1 className="text-xl font-bold tracking-tight text-white">{config.name}</h1>
           <p className="mt-1 text-sm text-slate-500">Powered by QORVEXA</p>
         </div>

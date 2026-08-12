@@ -430,6 +430,19 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
         actorId: user.id,
         payload: { from: before.stage, to: patch.stage },
       });
+    } else if (cfg.type === "task" && before.status !== "done" && patch.status === "done") {
+      // Phase 3: the reserved task.completed event (docs/03-event-catalog.md).
+      // Fires only on the todo/in_progress → done transition; other task
+      // updates still emit task.updated.
+      await emitEvent({
+        orgId: user.orgId,
+        environment,
+        type: "task.completed",
+        entity: cfg.type,
+        entityId: id,
+        actorId: user.id,
+        payload: { task: after },
+      });
     } else {
       await emitEvent({
         orgId: user.orgId,

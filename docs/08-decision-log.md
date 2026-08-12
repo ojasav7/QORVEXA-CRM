@@ -29,6 +29,7 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 | ADR-012 | Public lead forms = unauthenticated + honeypot + rate limit + no-leak dedupe | Accepted |
 | ADR-013 | Multi-pipeline = `Pipeline`/`PipelineStage` models, lazily seeded default, pipeline-derived probability | Accepted |
 | ADR-014 | Phase 2 comm providers are mocked; tracking endpoints are public + token-scoped | Accepted |
+| ADR-015 | Workflows = declarative `Automation` rows consumed by an event-bus subscriber; actions act as the workflow's creator | Accepted |
 
 ---
 
@@ -323,6 +324,65 @@ an unauthenticated surface without leaking tenant data.
   for this phase; the data model (status, timestamps, counts) is unchanged by
   the provider swap.
 - (−) In-memory rate limits reset on restart (same accepted trade-off as ADR-012).
+
+---
+
+## Amendments (2026-08-12 — Phase 3 completion)
+
+> Phase 3 (Automation & Workflow Engine) shipped the visual workflow builder over
+> the event bus — trigger → condition → action — plus the reserved
+> `task.completed` event, in-app notifications, a per-run action log, and
+> duplicate-workflow detection. The full spec is `docs/15-spec-phase3.md`; the
+> verification evidence is `docs/16-phase3-build-report.md`.
+
+## ADR-015 · Workflows = declarative rows consumed by an event-bus subscriber
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 3 needs a workflow engine where admins compose
+"when X happens, if Y, do Z" without code. The event bus (ADR-004) is the stated
+substrate — `onEvent(type, cb)` already fans every persisted event to in-process
+subscribers. The design question was how workflows are *defined* and *executed*.
+
+**Decision:**
+- **Definition:** an `Automation` row (org × environment) holds the whole
+  workflow as JSON: `trigger` (an event, optionally filtered, e.g.
+  `deal.stage_changed → to: "won"`), `conditions` (field filters on the
+  triggering record + `payload.*`), and `actions` (`create_task` / `notify` /
+  `update_record`). Same philosophy as `Segment.criteria` (ADR-003): workflows
+  are data, not code — no deploy per workflow.
+- **Execution:** one engine subscriber (`onEvent("*")` in
+  `server/lib/automations.ts`) matches events to active workflows for the
+  org × environment, evaluates conditions in-process, and runs actions.
+  `create_task` and `update_record` go **through the generic object service**
+  (validation + audit + events for free); `notify` writes `Notification` rows.
+- **Actor model:** actions act as the workflow's `createdBy` (an admin) with
+  org-level privilege — a rep's field permissions never silently block or
+  privilege an automation, and the audit trail names a real person. Each
+  evaluation writes an `AutomationRun` row (matched or not, per-action
+  outcomes) — the conflict-resolution surface.
+- **Duplicate guard:** creating/updating a workflow whose normalized
+  trigger+conditions+actions match another **active** one → 409 with
+  `duplicateId` unless `allowDuplicate: true`.
+- **Loop protection:** an in-memory cooldown skips repeat runs of the same
+  `(automationId, entityId, eventType)` within 30s — an action's own emitted
+  event (e.g. `update_record` → `deal.updated`) can never re-fire the same
+  workflow endlessly.
+
+**Consequences:**
+- (+) Admins compose real automation without code; every execution is
+  inspectable (run log + `automation.triggered`).
+- (+) The event bus (ADR-004) finally has its flagship consumer — later phases
+  (marketing journeys, agent triggers) reuse the same engine.
+- (−) In-process evaluation is synchronous with the event: heavy workflows add
+  latency to the triggering request. Accepted at Phase-0–3 scale; a queue
+  worker + durable dedupe is the documented upgrade path.
+- (−) Cooldown is in-memory (per instance, resets on restart) — fine for v1;
+  a durable run-key lands with the queue worker.
+- (−) Workflows can't act as non-admin users yet — the actor model is fixed to
+  the creator. Per-action user impersonation is future scope.
+
+---
 
 ## Engineering note · Zod `.default()` leaks through `.partial()` on PATCH
 

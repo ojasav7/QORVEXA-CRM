@@ -1,6 +1,7 @@
 import { useEffect, useState, createContext, useContext, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { get, post, ENV_STORAGE_KEY, type User, type Org } from "./lib/api";
+import { initTheme } from "./lib/theme";
 import { Spinner } from "./components/ui";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
@@ -20,6 +21,7 @@ import CallsPage from "./pages/CallsPage";
 import MeetingsPage from "./pages/MeetingsPage";
 import BookingPagesPage from "./pages/BookingPagesPage";
 import PublicBookingPage from "./pages/PublicBookingPage";
+import WorkflowsPage from "./pages/WorkflowsPage";
 
 export type FeatureState = {
   enabled: boolean;
@@ -94,6 +96,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    initTheme();
     void refresh();
   }, []);
 
@@ -126,6 +129,7 @@ export default function App() {
           <Route path="meetings" element={<MeetingsPage />} />
           <Route path="booking" element={<BookingPagesPage />} />
           <Route path="events" element={<EventsPage />} />
+          <Route path="workflows" element={<WorkflowsPage />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

@@ -312,6 +312,42 @@ Admin-managed shareable scheduling links; bookings create meetings owned by the 
 |---|---|---|
 | GET | `/api/timeline` | Requires `contactId`, `accountId` or `opportunityId`. `{ items: [{ kind: note|email|call|meeting, id, title, subtitle, createdAt, meta? }] }`, newest first, `?limit=50`. |
 
+## Workflows / Automations (Phase 3, flag `automation.workflows`)
+
+A workflow is **trigger → condition → action**: `trigger` (an event, optionally filtered), `conditions` (field filters on the triggering record + `payload.*`), `actions` (create task / notify / update record). The engine (`server/lib/automations.ts`) subscribes to the event bus and evaluates matching workflows in-process (ADR-015). Writes are admin-only; reads open to any authenticated user. Actions run as the workflow's creator (org-level privilege), so field permissions never block automation.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/automations` | Any | `{ items: [{ id, name, description, trigger, conditions, actions, active, runCount, lastRunAt, createdByName }] }`. |
+| POST | `/api/automations` | Admin | `{ name, description?, trigger, conditions?, actions?, active?, allowDuplicate? }`. Validates trigger/conditions/actions (400 on unknown event/field/action). **Duplicate guard:** an active workflow with the same normalized trigger+conditions+actions → `409 { error, duplicateId, duplicateName }` unless `allowDuplicate: true`. Emits `automation.created`. |
+| GET | `/api/automations/:id` | Any | Single workflow. |
+| PATCH | `/api/automations/:id` | Admin | Partial update (PATCH semantics; same validation + duplicate guard). Emits `automation.updated`. |
+| DELETE | `/api/automations/:id` | Admin | Emits `automation.deleted`. |
+| GET | `/api/automations/:id/runs` | Any | `{ items }` — the run log (matched or not, per-action outcomes), newest first, `?limit=` (≤100). |
+| POST | `/api/automations/:id/test` | Admin | `{ entityId }` — synthesizes the trigger event for that record and runs the workflow synchronously (logged as `triggeredBy: "test"`). Returns `{ ok, matched, note, actions: [{ type, status, detail? }] }`. |
+
+**Trigger catalog:** `deal.stage_changed` (optional `to` stage key), `deal.created`, `deal.updated`, `lead.created`, `contact.created`, `task.completed`.
+
+**Condition ops:** `eq, neq, contains, not_contains, gt, gte, lt, lte, in, not_in`. Fields resolve against the triggering record; `payload.from` / `payload.to` reach the event payload (useful for stage filters).
+
+**Actions:**
+- `{ "type": "create_task", "title": "…", "description"?, "dueInDays"?, "priority"? }` — creates a task owned by the record's owner, linked to the triggering record, with `{{field}}` templating (`{{name}}`, `{{amount}}`…).
+- `{ "type": "notify", "title": "…", "body"?, "target": "owner" | "actor" | "user", "userId"? }` — writes a `Notification` (target `user` requires `userId`).
+- `{ "type": "update_record", "field": "…", "value": … }` — sets one core field on the triggering record via the generic service.
+
+**Loop protection:** an in-memory cooldown skips repeat runs of the same `(automation, entity, eventType)` within 30s, so an action's own emitted event can never re-fire the same workflow endlessly.
+
+## Notifications (Phase 3, flag `automation.workflows`)
+
+In-app notifications — written by the `notify` action, read via the header bell. Rows are owned by `userId`; every endpoint scopes by the caller.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/notifications` | `?unreadOnly=&page=&pageSize=` — `{ items, total, unread }`, the caller's rows newest first. |
+| GET | `/api/notifications/unread-count` | `{ unread }` — the bell badge. |
+| POST | `/api/notifications/:id/read` | Mark one of the caller's rows read (404 for another user's row). |
+| POST | `/api/notifications/read-all` | `{ ok, updated }` — mark all of the caller's rows read. |
+
 ## Duplicate merge (Phase 1)
 
 Merges two records of the same type into a master, choosing per-field which record wins.

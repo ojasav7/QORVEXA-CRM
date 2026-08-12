@@ -43,6 +43,10 @@ import meetingRoutes from "./routes/meetings";
 import bookingPageRoutes from "./routes/booking-pages";
 import publicBookingRoutes from "./routes/public-booking";
 import timelineRoutes from "./routes/timeline";
+// Phase 3 · Automation & Workflow Engine
+import automationRoutes from "./routes/automations";
+import notificationRoutes from "./routes/notifications";
+import { startAutomationEngine } from "./lib/automations";
 import { requireFeature } from "./lib/features";
 import { objectRouter } from "./routes/object-routes";
 import { createObjectService } from "./lib/object-service";
@@ -104,6 +108,9 @@ app.use("/api/calls", requireFeature("comm.calling"), callRoutes);
 app.use("/api/meetings", requireFeature("comm.calendar"), meetingRoutes);
 app.use("/api/booking-pages", bookingPageRoutes);
 app.use("/api/timeline", timelineRoutes);
+// Phase 3 · Automation & Workflow Engine (feature-gated)
+app.use("/api/automations", requireFeature("automation.workflows"), automationRoutes);
+app.use("/api/notifications", requireFeature("automation.workflows"), notificationRoutes);
 // Public (no auth) — tracking pixels/click links + public booking pages.
 app.use("/api/t", trackingRoutes);
 app.use("/api/public/booking", publicBookingRoutes);
@@ -134,6 +141,9 @@ if (fs.existsSync(clientDist)) {
 app.use(errorHandler);
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+// Phase 3: subscribe the workflow engine to the event bus before serving.
+startAutomationEngine();
+
 const server = app.listen(env.port, () => {
   console.log(`\n  QORVEXA CRM  ·  http://localhost:${env.port}`);
   console.log(`  API          ·  http://localhost:${env.port}/api`);

@@ -585,3 +585,71 @@ model Note {
   @@index([orgId, environment])
   @@index([orgId, contactId])
 }
+
+// ── Phase 3 · Automation & Workflow Engine ───────────────────────────────────
+// A workflow is a declarative row: trigger (an event, optionally filtered) →
+// conditions (field filters on the triggering record + event payload) → actions
+// (create task / notify / update record). The engine (server/lib/automations.ts)
+// subscribes to the event bus with onEvent("*") and evaluates each matching
+// org × environment workflow in-process (ADR-015). runCount/lastRunAt are the
+// cheap "is this workflow alive" stats shown in the UI.
+model Automation {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008 — sandbox workflows never fire on prod events
+  name        String
+  description String?
+  trigger     Json     @default("{}") // { kind: "event", event: "deal.stage_changed", to?: "won" }
+  conditions  Json     @default("[]") // [{ field, op, value }]
+  actions     Json     @default("[]") // [{ type: "create_task" | "notify" | "update_record", ... }]
+  active      Boolean  @default(true)
+  runCount    Int      @default(0)
+  lastRunAt   DateTime?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, active])
+}
+
+// One row per engine evaluation (matched or not) — the workflow's run log and
+// the Phase-3 "conflict resolution" surface: every action's outcome is visible,
+// so a failing or conflicting automation is diagnosable instead of mysterious.
+// actions = [{ type, status: "ok" | "skipped" | "failed", detail?, entityId? }]
+model AutomationRun {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  automationId  String   @db.ObjectId
+  eventType     String // e.g. deal.stage_changed
+  entity        String // e.g. opportunity
+  entityId      String   @db.ObjectId
+  matched       Boolean  @default(true)
+  actions       Json     @default("[]") // per-action outcomes
+  note          String? // why it didn't match (condition/trigger filter), or errors
+  triggeredBy   String   @default("event") // event | test
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, automationId, createdAt])
+  @@index([orgId, environment, createdAt])
+}
+
+// In-app notifications (Phase 3) — the automation `notify` action writes rows
+// here, and the header bell reads them. Owned by userId (org-scoped like every
+// row); list/read endpoints scope by userId so users never see each other's.
+model Notification {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  userId      String   @db.ObjectId
+  title       String
+  body        String?
+  kind        String   @default("system") // automation | system
+  link        String? // e.g. "/deals?id=..." — where the notification points
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, userId, read])
+  @@index([orgId, userId, createdAt])
+}

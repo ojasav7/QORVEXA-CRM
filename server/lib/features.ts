@@ -66,6 +66,13 @@ export const KNOWN_FEATURES: FeatureDef[] = [
     enabledDefault: true,
     plans: ["free", "pro", "enterprise"],
   },
+  {
+    key: "automation.workflows",
+    label: "Workflows & automation",
+    description: "Phase 3 — visual workflow builder (trigger → condition → action) over the event bus, plus in-app notifications.",
+    enabledDefault: true,
+    plans: ["free", "pro", "enterprise"],
+  },
 ];
 
 export type FeatureState = FeatureDef & { enabled: boolean; source: "settings" | "featureFlag" | "default" };

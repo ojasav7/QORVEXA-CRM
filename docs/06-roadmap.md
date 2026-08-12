@@ -33,11 +33,13 @@ Contacts, accounts, leads, deals (6-stage pipeline board with drag-drop), activi
 
 See `docs/14-phase2-build-report.md` + `docs/14-communication-guide.md`.
 
-## Phase 3 — Automation & Workflow Engine 🧱
+## Phase 3 — Automation & Workflow Engine ✅ **COMPLETE**
 
-- Visual workflow builder (trigger → condition → action) — the event bus is the trigger substrate; `onEvent()` is the hook point
-- Sequences, notifications, escalations — ⬜
-- Conflict resolution UI + duplicate-agent detection — ⬜
+- **Visual workflow builder (trigger → condition → action) — ✅**: `Automation` rows (org × env, ADR-015) + one `onEvent("*")` engine subscriber (`lib/automations.ts`). Triggers: `deal.stage_changed` (optional `to` stage), `deal.created/updated`, `lead.created`, `contact.created`, `task.completed`. Conditions: segment-style field filters (+ `payload.*`). Actions: `create_task` (`{{field}}` merge), `notify` (in-app), `update_record` — through the generic object service as the workflow's creator. Workflows page with builder modal, run history, test endpoint. See `docs/15-spec-phase3.md` + `docs/16-phase3-build-report.md`.
+- **`task.completed` — ✅**: emitted on `todo/in_progress → done` (reservation fulfilled).
+- **Notifications — ✅**: `Notification` model + `/api/notifications` + header bell (unread badge, mark read/all).
+- **Conflict resolution UI + duplicate-automation detection — ✅**: `AutomationRun` log (matched or not, per-action outcomes) + 409 duplicate guard with `allowDuplicate` override.
+- Sequences (multi-step scheduled journeys), escalations — ⬜ (deferred, spec §1 non-goals).
 
 ## Phase 4 — Customer Service ⬜
 
@@ -87,5 +89,5 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Ti
 ## Suggested next milestones
 
 1. **~~Phase 2-lite~~** — done (multi-pipeline). **~~Phase 2~~** — done (Communication Core: email, calling, calendar, booking, timeline).
-2. **Phase 3-lite:** a visual workflow builder over the event bus (trigger → condition → action), which also delivers `task.completed` and notifications — the event substrate (`onEvent`, `task.completed` reserved) is ready.
+2. **~~Phase 3~~** — done (Automation & Workflow Engine: visual trigger → condition → action builder, `task.completed`, notifications, run log + duplicate guard). Spec `docs/15-spec-phase3.md`, report `docs/16-phase3-build-report.md`.
 3. **Phase 6-lite:** report builder + metrics library over the event-sourced pipeline/comm data (weighted forecasts are ready to compute).

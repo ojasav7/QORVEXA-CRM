@@ -16,10 +16,12 @@ export function getEnvHeader(): Record<string, string> {
 export class ApiError extends Error {
   status: number;
   issues?: string[];
-  constructor(status: number, message: string, issues?: string[]) {
+  data?: Record<string, unknown>; // raw response body (e.g. duplicateId on 409)
+  constructor(status: number, message: string, issues?: string[], data?: Record<string, unknown>) {
     super(message);
     this.status = status;
     this.issues = issues;
+    this.data = data;
   }
 }
 
@@ -40,7 +42,7 @@ export async function api<T = unknown>(path: string, options: RequestInit = {}):
     } catch {
       /* ignore */
     }
-    throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.issues);
+    throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.issues, data as Record<string, unknown>);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

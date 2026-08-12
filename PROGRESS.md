@@ -4,19 +4,19 @@
 > Status cross-references the blueprint (`QORVEXAThe intelligent operating system for business.md`)
 > and what's actually verified in this repo. **Effort estimates are rough build-days for one developer.**
 
-<!-- Last updated: 2026-08-12 (Phase 2 re-verified live: 45/45 + 29/29 + 30/30 green) -->
+<!-- Last updated: 2026-08-12 (Phase 3 verified live: 34/34 + 45/45 + 29/29 + 30/30 green) -->
 
 ## Summary
 
 | Metric | Value |
 |---|---|
-| Phases complete | **3 / 16** (Phase 0 — Platform Foundations ✅ 100%, Phase 1 — Core CRM ✅ 100%, Phase 2 — Communication Core ✅ 100%) |
+| Phases complete | **4 / 16** (Phase 0 — Platform Foundations ✅ 100%, Phase 1 — Core CRM ✅ 100%, Phase 2 — Communication Core ✅ 100%, Phase 3 — Automation & Workflow Engine ✅ 100%) |
 | Phases substantially built | 0 |
 | Phases partially built | 2 (Phase 6 substrate, Phase 8 substrate) |
-| Phases not started | 11 |
-| Current focus | Phase 3-lite (workflow engine over the event bus) |
+| Phases not started | 10 |
+| Current focus | Phase 6-lite (report builder + metrics library over the event-sourced pipeline/comm data) |
 
-**Phases 0, 1 and 2 are complete.** The platform backbone (object model, event bus, RBAC, audit, custom fields, sandboxes, feature flags, import/export with merge, scheduled backups, field-level permissions, data residency, OAuth tokens + SSO), the full core CRM (lead routing, account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI), and the entire Communication Core (email templates + send/sync/reply with open/click tracking, calling with recording, calendar/meetings, public booking pages, auto-logged record timeline) are all shipped and live-verified. The object model + event bus mean every later phase starts from a solid, extensible base.
+**Phases 0–3 are complete.** The platform backbone (object model, event bus, RBAC, audit, custom fields, sandboxes, feature flags, import/export with merge, scheduled backups, field-level permissions, data residency, OAuth tokens + SSO), the full core CRM (lead routing, account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI), the entire Communication Core (email templates + send/sync/reply with open/click tracking, calling with recording, calendar/meetings, public booking pages, auto-logged record timeline), and the **Automation & Workflow Engine** (visual trigger → condition → action builder over the event bus, `task.completed`, in-app notifications, run log, duplicate-workflow guard) are all shipped and live-verified. The object model + event bus mean every later phase starts from a solid, extensible base — and the event bus now has its flagship consumer.
 
 ## Phase-by-phase status
 
@@ -78,9 +78,17 @@
 
 ---
 
-### Phase 3 — Automation & Workflow Engine ⬜ — *est. 8–10 days*
+### Phase 3 — Automation & Workflow Engine ✅ **COMPLETE (100%)**
 
-Visual workflow builder over the event bus: trigger (`deal.stage_changed`) → condition → action (create task, notify). `onEvent()` subscriber API already exists in `lib/events.ts` — the trigger substrate is done. Also: `task.completed` event (currently emits `task.updated`), sequences, notifications, conflict-resolution UI, duplicate-automation detection.
+**Blueprint items verified shipped ✅** (spec `docs/15-spec-phase3.md`, report `docs/16-phase3-build-report.md`)
+- **Visual workflow builder** — trigger → condition → action over the event bus: `Automation` rows (org × env) + one `onEvent("*")` engine subscriber (`lib/automations.ts`). Triggers: `deal.stage_changed` (optional `to` stage), `deal.created/updated`, `lead.created`, `contact.created`, `task.completed`. Conditions: segment-style field filters (+ `payload.*`) validated at save time. Actions: `create_task` (with `{{field}}` merge), `notify` (in-app), `update_record` — task/record writes go through the generic object service (audit + events for free), acting as the workflow's creator (ADR-015).
+- **`task.completed` event** — emitted on the `todo/in_progress → done` transition (the catalog reservation is fulfilled).
+- **Notifications** — `Notification` model + `/api/notifications` (list/unread-count/read/read-all, user-scoped) + header bell with unread badge + dropdown.
+- **Conflict-resolution UI + run log** — every evaluation writes an `AutomationRun` (matched or not, per-action `ok/skipped/failed` outcomes); the Workflows page renders run history and a synchronous **test endpoint** (`POST :id/test`) that runs a workflow against a real record.
+- **Duplicate-automation detection** — 409 + `duplicateId` on an identical active workflow, `allowDuplicate` override, "Save anyway" UI banner. Loop protection: 30s in-memory cooldown per (workflow, entity, event).
+- **Feature-gated** — `automation.workflows` flag (default-on) gates the APIs and nav; sandbox workflows never fire on production events.
+
+**Verified by:** `npm run typecheck` + `npm run build` green; live smoke suite `verify-phase3.sh` (34/34) covering `task.completed`, CRUD + validation, duplicate 409/override, end-to-end trigger (won deal → runCount++ + task + notification + `automation.triggered`), test endpoint matched/unmatched, notifications scoping, sandbox isolation, and the feature gate — plus full regressions `verify-phase2-comm.sh` 45/45, `verify-phase2.sh` 29/29, `verify-phase1.sh` 30/30 green on the same stack (see the build report).
 
 ---
 
@@ -163,9 +171,10 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Op
 3. ~~**Finish Phase 1**~~ — **done** (report in `docs/12-phase1-build-report.md`): lead routing (round-robin + manual override), account hierarchy UI, dynamic segments, public lead-capture forms, duplicate-merge UI. Phase 1 is **100% complete**.
 3. ~~**Phase 2-lite: multi-pipeline**~~ — **done** (report in `docs/13-phase2-lite-build-report.md`).
 4. ~~**Phase 2: Communication Core**~~ — **done** (report in `docs/14-phase2-build-report.md`): email + templates + tracking, calling, calendar/meetings, public booking pages, auto-logged record timeline. Phase 2 is **100% complete**.
-5. **Phase 3-lite** (~8–10 days): workflow engine over the event bus — unlocks `task.completed`, notifications, and every automation-dependent phase after it. The `onEvent()` subscriber API is already the trigger substrate.
+5. ~~**Phase 3: Automation & Workflow Engine**~~ — **done** (spec `docs/15-spec-phase3.md`, report `docs/16-phase3-build-report.md`): visual trigger → condition → action builder over the event bus, `task.completed`, in-app notifications, run log + test endpoint, duplicate-workflow guard. Phase 3 is **100% complete**.
+6. **Phase 6-lite** (~6–8 days): report builder + metrics library over the event-sourced pipeline/comm data — weighted forecasts are ready to compute (the dashboard endpoint + pipeline aggregation substrate already exists).
 
-Dependencies: Phases 4, 5, 7, 8, 9 all consume the event bus + object model (done). Phase 8–9 AI work should wait until Phases 1–7 produce real data volume.
+Dependencies: Phases 4, 5, 7, 8, 9 all consume the event bus + object model + the new workflow engine (done). Phase 8–9 AI work should wait until Phases 1–7 produce real data volume.
 
 ## How this report is maintained
 

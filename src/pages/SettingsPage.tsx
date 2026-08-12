@@ -892,7 +892,7 @@ function FlagsTab() {
               disabled={busyKey === key}
               className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${f.enabled ? "bg-accent-500" : "bg-ink-700"}`}
             >
-              <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${f.enabled ? "left-[22px]" : "left-0.5"}`} />
+              <span className={`absolute top-0.5 size-5 rounded-full shadow transition-all ${f.enabled ? "left-[22px] bg-on-brand" : "left-0.5 bg-white"}`} />
             </button>
           </div>
         ))}

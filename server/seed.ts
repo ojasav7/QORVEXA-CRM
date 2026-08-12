@@ -277,6 +277,50 @@ async function main() {
     });
   }
 
+  // ── Phase 3 · Automation & Workflow Engine ───────────────────────────────
+  // Two demo workflows (idempotent by name) proving trigger → condition → action
+  // over the event bus, plus one notification so the header bell has content.
+  const workflowSeeds = [
+    {
+      name: "Celebrate won deals",
+      description: "When a deal moves to won with a value of $50k+, notify the owner and schedule a handover task.",
+      trigger: { kind: "event", event: "deal.stage_changed", to: "won" },
+      conditions: [{ field: "amount", op: "gte", value: 50000 }],
+      actions: [
+        { type: "notify", title: "Deal won 🎉", body: "{{name}} closed for {{amount}} — great work!", target: "owner" },
+        { type: "create_task", title: "Handover follow-up: {{name}}", description: "Coordinate delivery kickoff for {{name}}.", dueInDays: 3, priority: "high" },
+      ],
+    },
+    {
+      name: "Hot lead follow-up",
+      description: "When a lead with score ≥ 70 arrives, ping the owner to qualify it fast.",
+      trigger: { kind: "event", event: "lead.created" },
+      conditions: [{ field: "score", op: "gte", value: 70 }],
+      actions: [{ type: "notify", title: "Hot lead inbound 🔥", body: "{{firstName}} {{lastName}} from {{company}} (score {{score}}) needs a callback.", target: "owner" }],
+    },
+  ];
+  for (const w of workflowSeeds) {
+    const existing = await p.automation.findFirst({ where: { orgId, name: w.name } });
+    if (existing) continue;
+    await p.automation.create({
+      data: {
+        orgId, environment: "production", name: w.name, description: w.description,
+        trigger: w.trigger as object, conditions: w.conditions as object, actions: w.actions as object,
+        active: true, createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.notification.findFirst({ where: { orgId, title: "Welcome to Phase 3 ✨" } }))) {
+    await p.notification.create({
+      data: {
+        orgId, environment: "production", userId: admin.id, kind: "system",
+        title: "Welcome to Phase 3 ✨",
+        body: "Workflows are live — the event bus now automates follow-ups. Try building one in Workflows, or use the test button to try these on a deal.",
+        link: "/workflows",
+      },
+    });
+  }
+
   console.log(`✓ Seeded demo org "${ORG_NAME}"`);
   console.log(`  Login → admin@qorvexa.dev / password123`);
   console.log(`  Users: priya@qorvexa.dev, leo@qorvexa.dev (same password)`);

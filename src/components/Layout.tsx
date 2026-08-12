@@ -3,12 +3,13 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Building2, Target, Briefcase, CheckSquare,
   Activity, Settings, LogOut, Search, Menu, X, Upload, GitBranch, ListFilter,
-  Mail, Phone, CalendarDays, CalendarClock, FileText,
+  Mail, Phone, CalendarDays, CalendarClock, FileText, Bell, GitMerge, CheckCheck,
+  Sun, Moon,
 } from "lucide-react";
+import { useTheme } from "../lib/theme";
 import { useSession, useFeature } from "../App";
-import { post } from "../lib/api";
+import { api, post } from "../lib/api";
 import { initials } from "../lib/format";
-import { api } from "../lib/api";
 import type { Org } from "../lib/api";
 
 const NAV = [
@@ -28,6 +29,7 @@ export default function Layout() {
   const showEmail = useFeature("comm.email");
   const showCalling = useFeature("comm.calling");
   const showCalendar = useFeature("comm.calendar");
+  const showWorkflows = useFeature("automation.workflows");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -68,7 +70,7 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/60 backdrop-blur-xl">
         <Link to="/" className="flex items-center gap-2.5 px-5 py-5">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-violet-500 font-bold text-white shadow-lg shadow-accent-500/30">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-violet-500 font-bold text-on-brand shadow-lg shadow-accent-500/30">
             Q
           </div>
           <div>
@@ -121,6 +123,15 @@ export default function Layout() {
             <NavLink to="/booking" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <CalendarClock className="size-4" />
               Booking
+            </NavLink>
+          )}
+          {showWorkflows && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Automation</div>
+          )}
+          {showWorkflows && (
+            <NavLink to="/workflows" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <GitMerge className="size-4" />
+              Workflows
             </NavLink>
           )}
           <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
@@ -193,6 +204,11 @@ export default function Layout() {
                   <CalendarClock className="size-4" /> Booking
                 </NavLink>
               )}
+              {showWorkflows && (
+                <NavLink to="/workflows" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <GitMerge className="size-4" /> Workflows
+                </NavLink>
+              )}
               <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
                 <Settings className="size-4" /> Settings
               </NavLink>
@@ -243,6 +259,8 @@ export default function Layout() {
             )}
           </div>
 
+          {showWorkflows && <NotificationBell />}
+          <ThemeToggle />
           <button onClick={logout} className="md:hidden rounded-lg p-2 text-slate-400"><LogOut className="size-4" /></button>
         </header>
 
@@ -258,4 +276,117 @@ export default function Layout() {
 import { useOutlet } from "react-router-dom";
 function OutletContent() {
   return useOutlet();
+}
+
+/** Header theme toggle — flips data-theme on <html> (persisted). */
+function ThemeToggle() {
+  const [theme, setTheme] = useTheme();
+  const next = theme === "dark" ? "light" : "dark";
+  return (
+    <button
+      onClick={() => setTheme(next)}
+      title={`Switch to ${next} mode`}
+      className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+    >
+      {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </button>
+  );
+}
+
+type NotificationItem = { id: string; title: string; body: string | null; kind: string; link: string | null; read: boolean; createdAt: string };
+
+/** Header bell — unread badge + dropdown of the caller's latest notifications. */
+function NotificationBell() {
+  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<NotificationItem[]>([]);
+
+  const refreshCount = () => {
+    void api<{ unread: number }>("/api/notifications/unread-count").then((d) => setUnread(d.unread)).catch(() => {});
+  };
+  const load = async () => {
+    try {
+      const d = await api<{ items: NotificationItem[]; unread: number }>("/api/notifications?pageSize=8");
+      setItems(d.items);
+      setUnread(d.unread);
+    } catch {
+      /* bell stays quiet when the API is unavailable */
+    }
+  };
+
+  useEffect(() => {
+    refreshCount();
+    const t = setInterval(refreshCount, 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const markRead = async (n: NotificationItem) => {
+    if (n.read) return;
+    try {
+      await post(`/api/notifications/${n.id}/read`);
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      refreshCount();
+    } catch { /* ignore */ }
+  };
+
+  const markAll = async () => {
+    try {
+      await post("/api/notifications/read-all");
+      setItems((prev) => prev.map((x) => ({ ...x, read: true })));
+      setUnread(0);
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { void load(); setOpen((o) => !o); }}
+        title="Notifications"
+        className="relative rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+      >
+        <Bell className="size-4" />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-on-brand">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-11 z-40 w-80 overflow-hidden rounded-xl border border-white/[0.08] bg-ink-850 shadow-2xl shadow-black/50">
+            <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Notifications</span>
+              {unread > 0 && (
+                <button onClick={() => void markAll()} className="flex items-center gap-1 text-[11px] font-medium text-accent-400 hover:text-accent-300">
+                  <CheckCheck className="size-3.5" /> Mark all read
+                </button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {items.length === 0 ? (
+                <div className="px-4 py-8 text-center text-xs text-slate-600">No notifications yet.</div>
+              ) : (
+                items.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => void markRead(n)}
+                    className={`block w-full border-b border-white/[0.03] px-4 py-3 text-left transition-colors hover:bg-white/[0.04] ${n.read ? "opacity-55" : ""}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      {!n.read && <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent-400" />}
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-white">{n.title}</div>
+                        {n.body && <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{n.body}</div>}
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }

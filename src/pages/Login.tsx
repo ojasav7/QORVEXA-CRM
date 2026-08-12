@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { post, ApiError } from "../lib/api";
 import { useSession } from "../App";
 import { Spinner } from "../components/ui";
+import { useTheme } from "../lib/theme";
+import { Moon, Sun } from "lucide-react";
 
 export default function Login() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -13,6 +15,7 @@ export default function Login() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const { refresh } = useSession();
+  const [theme, setTheme] = useTheme();
 
   // OAuth SSO (Phase 0): show provider buttons the server says are configured.
   useEffect(() => {
@@ -63,10 +66,17 @@ export default function Login() {
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div className="flex min-h-full items-center justify-center p-4">
+    <div className="relative flex min-h-full items-center justify-center p-4">
+      <button
+        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        className="absolute right-4 top-4 rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+      >
+        {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      </button>
       <div className="card w-full max-w-md animate-fade-up p-8">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-violet-500 text-2xl font-bold text-white shadow-xl shadow-accent-500/30">
+          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-violet-500 text-2xl font-bold text-on-brand shadow-xl shadow-accent-500/30">
             Q
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white">QORVEXA CRM</h1>

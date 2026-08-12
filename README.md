@@ -11,7 +11,7 @@
 
 # QORVEXA CRM
 
-**The intelligent operating system for business** — Phases 0–2 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking).
+**The intelligent operating system for business** — Phases 0–3 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking) + **Automation & Workflow Engine**.
 
 </div>
 
@@ -33,6 +33,7 @@ A production-shaped CRM implementing the architecture principles from `QORVEXATh
 - **Calling (Phase 2)** — click-to-call + full call log with optional mock recording/transcription.
 - **Calendar + booking (Phase 2)** — meetings with date-range calendar view, plus **public booking pages** (`/b/<slug>`) with round-robin host assignment, honeypot + rate limiting, and server-side slot validation.
 - **Auto-logged record timeline (Phase 2)** — every email, call, meeting, and note against a record appears on its detail drawer automatically.
+- **Workflows & automation (Phase 3)** — visual **trigger → condition → action** builder over the event bus (`deal.stage_changed → won → notify + create task`), the reserved **`task.completed`** event, in-app **notifications** (header bell), a per-run **action log** with a synchronous **test endpoint**, and duplicate-workflow detection — see `docs/15-spec-phase3.md`.
 - **No-code object builder (v1)** — admins define custom fields per object type via the UI; values are stored per-record and rendered dynamically.
 - **Multi-tenant from Day 1** — every document carries `orgId`; isolation is enforced on every query.
 - **Audit trail** — every mutation is logged with a field-level diff (`before`/`after`/`changed`), the foundation for the Phase-15 Time Machine.
@@ -107,6 +108,8 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/14-calling-compliance.md](docs/14-calling-compliance.md) | Calling/recording compliance notes — consent, retention, access control, GDPR/CCPA obligations |
 | [docs/14-pipeline-builder-guide.md](docs/14-pipeline-builder-guide.md) | Pipeline builder guide — create pipelines/stages/probabilities, set default, guards |
 | [docs/14-phase2-build-report.md](docs/14-phase2-build-report.md) | Phase 2 completion — Communication Core shipped end-to-end, verification evidence |
+| [docs/15-spec-phase3.md](docs/15-spec-phase3.md) | The spec that drove Phase 3 — the workflow engine (trigger → condition → action), `task.completed`, notifications, duplicate guard |
+| [docs/16-phase3-build-report.md](docs/16-phase3-build-report.md) | Phase 3 completion — workflow engine + notifications shipped end-to-end, verification evidence |
 
 ---
 

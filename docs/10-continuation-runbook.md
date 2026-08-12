@@ -5,7 +5,7 @@
 
 ## 1. What this project is
 
-QORVEXA CRM — a multi-tenant, API-first CRM built on the blueprint `QORVEXAThe intelligent operating system for business.md` (16 phases). Phases 0 (platform backbone) and 1 (core CRM) are substantially built and browser-verified. The architecture centers on a **generic object service**: one CRUD engine powers every object type, with events, audit, permissions, and custom fields handled centrally.
+QORVEXA CRM — a multi-tenant, API-first CRM built on the blueprint `QORVEXAThe intelligent operating system for business.md` (16 phases). Phases 0–3 are complete and live-verified: platform backbone, core CRM, Communication Core, and the Automation & Workflow Engine (trigger → condition → action over the event bus, `task.completed`, notifications, run log, duplicate guard). The architecture centers on a **generic object service**: one CRUD engine powers every object type, with events, audit, permissions, and custom fields handled centrally — and an **event-bus subscriber engine** (`server/lib/automations.ts`) that consumes the same event stream for workflows.
 
 ## 2. Where to get oriented (read in this order)
 

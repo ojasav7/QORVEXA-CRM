@@ -92,7 +92,14 @@ webhook.created        org.created
 | `booking.page_created` / `updated` / `deleted` | Booking-page lifecycle (admin) | `{ name?, slug }` |
 | `booking.booked` | A public booking created a meeting | `{ slug, name, email, hostId, startsAt }` |
 
-> `task.completed` is reserved: it will fire when a task moves to `done` (the service currently emits `task.updated`; the dedicated event lands with Phase 3 automation so listeners aren't overloaded).
+## Phase 3 events (Automation & Workflow Engine)
+
+| Event | When | Payload |
+|---|---|---|
+| `task.completed` | A task transitions `todo/in_progress → done` (was reserved; now shipped — other task updates still emit `task.updated`) | `{ task }` |
+| `automation.created` / `updated` / `deleted` | Workflow lifecycle (admin) | `{ name, trigger? }` |
+| `automation.triggered` | A workflow matched an event and executed its actions | `{ automationId, name, eventType, entity, entityId, matched, actionCount }` |
+| `notification.created` | The `notify` action (or any code) created an in-app notification | `{ userId, kind, title }` |
 
 ## Consumers
 
