@@ -101,6 +101,91 @@ webhook.created        org.created
 | `automation.triggered` | A workflow matched an event and executed its actions | `{ automationId, name, eventType, entity, entityId, matched, actionCount }` |
 | `notification.created` | The `notify` action (or any code) created an in-app notification | `{ userId, kind, title }` |
 
+## Phase 4 events (Customer Service / Helpdesk)
+
+| Event | When | Payload |
+|---|---|---|
+| `ticket.created` | A ticket was created (any channel — manual, portal, email intake) | `{ ticket }` |
+| `ticket.updated` | A non-status ticket edit | — |
+| `ticket.deleted` | A ticket was deleted | — |
+| `ticket.status_changed` | A ticket changed status (`new → open → pending → resolved/closed`) — the workflow engine's `ticket.status_changed` trigger | `{ from, to }` |
+| `ticket.assigned` | Admin/manager assigned a ticket to a user | `{ reference, from, to }` (user ids) |
+| `ticket.replied` | A staff reply was added to the thread | `{ reference, internal, replyId }` |
+| `ticket.escalated` | A ticket was escalated (manual or by the SLA sweep) | `{ reference, reason? }` |
+| `ticket.sla_breached` | The SLA sweep marked an open ticket past its response deadline | `{ reference, priority, slaDueAt }` |
+| `ticket.converted` | A ticket was converted into a lead | `{ reference, leadId }` |
+| `ticket.captured` | An intake path created a ticket (email intake / public portal) | `{ reference, channel, from?, slug? }` |
+| `knowledge.created` / `updated` / `deleted` | Knowledge-article lifecycle (admin) | `{ title, published? }` |
+| `portal.created` / `updated` / `deleted` | Public portal-page lifecycle (admin) | `{ name, slug }` |
+
+> The Phase 3 workflow engine's trigger catalog now includes `ticket.created`,
+> `ticket.status_changed` (optional `to` status filter), and `ticket.escalated`
+> — tickets are automatable like any other object.
+
+## Phase 5 events (Marketing Automation & Journey Orchestration)
+
+| Event | When | Payload |
+|---|---|---|
+| `campaign.created` / `updated` / `deleted` | Campaign lifecycle (admin) | `{ name }` |
+| `campaign.sent` | A campaign was sent to its segment audience | `{ name, sent, ab }` |
+| `campaign.winner_declared` | An A/B winner was declared | `{ name, winner }` |
+| `landing.created` / `updated` / `deleted` | Landing-page lifecycle (admin) | `{ name, slug }` |
+| `form.submitted` | A public landing page created a **new** lead (duplicates are no-leak and emit nothing) — the workflow engine's `form.submitted` trigger | `{ slug, campaignId?, email, duplicate: false }` |
+| `intent.detected` | A landing submission signaled buying intent | `{ leadId, signal: "landing_page_submit", slug, campaignId? }` |
+| `journey.created` / `updated` / `deleted` | Journey lifecycle (admin) | `{ name, trigger? }` |
+| `journey.enrolled` | An entity entered a journey (event or segment trigger) | `{ name, entity, entityId, source: event|segment }` |
+| `journey.step_entered` | A journey step executed | `{ journeyName, stepIndex, stepType, entity, entityId, matched? }` |
+| `journey.completed` | An enrollment reached the `end` step (or ran off the list) | `{ name, entity, entityId }` |
+| `email.bounced` | A simulated provider bounce marked a message | `{ to, subject, contactId?, campaignId? }` |
+| `email.unsubscribed` | Simulated unsubscribe | `{ to, subject, contactId?, campaignId? }` |
+| `email.complained` | Simulated complaint (tracked with unsubscribes in v1 metrics) | `{ to, subject, contactId?, campaignId? }` |
+
+> The Phase 3 workflow engine's trigger catalog also gained `form.submitted`
+> (a landing submission created a lead) — landing traffic is automatable like
+> any other object.
+
+## Phase 6 events (Analytics, Forecasting & BI)
+
+| Event | When | Payload |
+|---|---|---|
+| `forecast.updated` | An admin snapshot persisted a weighted forecast (or the report/BI refresh ran) | `{ buckets, byOwnerCount }` |
+| `metric.threshold_breached` | A configured metric fell below its threshold (evaluated at forecast refresh) | `{ key, label, value, threshold, direction: "below" }` |
+| `report.created` / `updated` / `deleted` | Saved report (dashboard config) lifecycle (admin) | `{ name, kind? }` |
+
+> Threshold breaches also write an admin **notification** (`kind: "metric"`),
+> so the header bell surfaces a metric alert without waiting for a page view.
+
+## Phase 7 events (CDP / Customer 360)
+
+| Event | When | Payload |
+|---|---|---|
+| `customer.identity_merged` | Two records unified under one profile — a record was attached to an existing profile (`source: "record"`) or an admin merged two profiles (`source: "manual"`) | `{ email?, from?, into?, memberRef?, memberIds, memberCount, source, mergedFromCount? }` |
+| `customer.profiles_rebuilt` | Admin rebuild reconciled every contact + lead into profiles | `{ contacts, leads, created, attached, merged }` |
+| `customer.behavior_tracked` | A customer behavior was ingested via the API | `{ type, profileId? }` |
+| `customer.health_changed` | Health refresh scored a profile | `{ score, churnRisk, components: [{ key, value }], refreshId }` |
+| `customer.churn_risk_changed` | Health refresh scored a profile with churnRisk ≥ 70 | `{ score, churnRisk, atRisk, refreshId }` |
+| `portability.exported` | An admin created a full-tenant portability bundle | `{ path, sizeBytes, collections, totalRows }` |
+
+> **Behavior mirror:** the CDP engine subscribes to `email.opened/clicked/replied`,
+> `form.submitted`, `ticket.created`, `call.completed`, and `meeting.completed`
+> and mirrors them into `BehaviorEvent` rows (source `event-bus`) — the customer
+> touchpoint stream is built from the same event bus, with no code at the source.
+
+## Phase 8 events (AI Assistant Layer)
+
+| Event | When | Payload |
+|---|---|---|
+| `ai.summary_generated` | A record/call/profile summary or email draft was generated | `{ feature, entity, entityId?, modelId?, confidence }` |
+| `ai.score_computed` | An explained lead/deal AI score was computed | `{ entity, entityId, score, modelId, confidence }` |
+| `ai.confidence_flagged` | A generator returned below-threshold confidence | `{ feature, entity?, confidence, threshold }` |
+| `model.created` / `updated` / `deleted` | Model-catalog lifecycle (admin) | `{ name, tier, active? }` |
+| `ai.policy_updated` | Admin changed the routing policy | `{ preference, defaultModel, preferredRegion? }` |
+| `ai.firewall_updated` | Admin changed the data-firewall policy | `{ maskMode, redactEmails, redactPhones, redactCards, redactLongNumbers }` |
+
+> **Confidence flagging** also writes an admin **notification** (`kind: "ai"`),
+> so the header bell surfaces "Low AI confidence ⚠️" without waiting for a page
+> view — same pattern as Phase 6 metric alerts.
+
 ## Consumers
 
 1. **In-process** — `onEvent(type, cb)` in `lib/events.ts`. Phase 3 workflow engine and Phase 8 AI subscribe here.

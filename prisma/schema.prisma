@@ -341,6 +341,7 @@ model Lead {
   source      String?
   status      String   @default("new") // new | contacted | qualified | converted | lost
   score       Int      @default(0) // 0–100
+  campaignId  String?  @db.ObjectId // Phase 5 attribution — landing page / form source campaign
   tags        Json     @default("[]")
   custom      Json     @default("{}")
   visibility  String   @default("org")
@@ -350,6 +351,7 @@ model Lead {
   @@index([orgId])
   @@index([orgId, environment])
   @@index([orgId, email])
+  @@index([orgId, campaignId])
 }
 
 // ── Phase 2 · Communication Core ───────────────────────────────────────────────
@@ -392,6 +394,10 @@ model Message {
   clickedAt     DateTime?
   repliedAt     DateTime?
   openedCount   Int      @default(0)
+  // Phase 5 · Marketing — deliverability state (mock provider events, ADR-014)
+  bouncedAt     DateTime? // hard bounce (mock) — email.bounced
+  unsubscribedAt DateTime? // recipient opted out (mock) — email.unsubscribed
+  campaignId    String?  @db.ObjectId // the Campaign that sent this (if any) — attribution + stats
   templateId    String?  @db.ObjectId // the EmailTemplate used (if any)
   contactId     String?  @db.ObjectId // auto-log reference
   accountId     String?  @db.ObjectId
@@ -404,6 +410,7 @@ model Message {
   @@index([orgId, environment, direction])
   @@index([orgId, environment, contactId])
   @@index([orgId, environment, threadId])
+  @@index([orgId, environment, campaignId])
 }
 
 // Call log entries (Phase 2) — click-to-call + manual logging. When org
@@ -645,7 +652,7 @@ model Notification {
   userId      String   @db.ObjectId
   title       String
   body        String?
-  kind        String   @default("system") // automation | system
+  kind        String   @default("system") // automation | journey | metric | system
   link        String? // e.g. "/deals?id=..." — where the notification points
   read        Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -653,3 +660,613 @@ model Notification {
   @@index([orgId, userId, read])
   @@index([orgId, userId, createdAt])
 }
+
+// ── Phase 6 · Analytics, Forecasting & Business Intelligence ───────────────
+// A forecast is a DURABLE SNAPSHOT of the live weighted pipeline (ADR-018):
+// the org's current pipeline totals (raw / weighted / commit / best case),
+// the per-stage detail, and a per-owner breakdown — persisted by the admin
+// `refresh` endpoint (which emits forecast.updated). Live reads recompute
+// from current rows; this row is the history + the "as of" record.
+model Forecast {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  buckets     Json     @default("{}") // { pipeline, weighted, commit, bestCase }
+  stages      Json     @default("[]") // [{ stage, probability, count, amount, weighted }]
+  byOwner     Json     @default("[]") // [{ ownerId, ownerName, pipeline, weighted, commit, bestCase }]
+  metricKeys  Json     @default("[]") // lineage: the metric keys that fed this snapshot
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, environment, createdAt])
+}
+
+// Saved dashboard configs (flag analytics.reports) — same row-as-config
+// philosophy as segments/automations/journeys. kind + keys select which live
+// metrics the report renders; reads are open, writes admin-only.
+model Report {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  name        String
+  description String?
+  kind        String   @default("sales") // sales | marketing | service | revenue
+  keys        Json     @default("[]") // metric keys to render (empty = all for the kind)
+  active      Boolean  @default(true)
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// ── Phase 4 · Customer Service / Helpdesk ───────────────────────────────────
+// Tickets are a first-class object type (ADR-016): the generic object service
+// powers CRUD/audit/events/search/custom fields, and a thin ticket router
+// (server/routes/tickets.ts) adds service-specific behavior — reference
+// numbers, SLA deadlines, status transitions, replies, escalation, legal hold,
+// email intake, convert-to-lead. SLA status is COMPUTED at read from slaDueAt
+// (server/lib/slas.ts); the sweep just persists breachedAt + emits events.
+model Ticket {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId           String   @db.ObjectId
+  environment     String   @default("production") // ADR-008
+  reference       String // per-org human ref, e.g. TKT-0001 (unique per org × env)
+  subject         String
+  description     String?
+  status          String   @default("new") // new | open | pending | resolved | closed
+  priority        String   @default("low") // low | medium | high | urgent
+  channel         String   @default("web") // email | web | chat | whatsapp | sms | phone | social
+  source          String   @default("manual") // portal | email | manual
+  ownerId         String   @db.ObjectId // the assignee (generic owner field)
+  contactId       String?  @db.ObjectId
+  accountId       String?  @db.ObjectId
+  slaDueAt        DateTime?
+  breachedAt      DateTime?
+  escalated       Boolean  @default(false)
+  escalatedAt     DateTime?
+  firstResponseAt DateTime?
+  resolvedAt      DateTime?
+  legalHold       Boolean  @default(false)
+  tags            Json     @default("[]")
+  custom          Json     @default("{}")
+  visibility      String   @default("org")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  @@unique([orgId, environment, reference])
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, priority])
+  @@index([orgId, environment, ownerId])
+}
+
+// The ticket reply thread (ADR-016). `internal` marks staff-only replies —
+// public replies are what the portal lookup shows the customer.
+model TicketReply {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  ticketId    String   @db.ObjectId
+  authorId    String   @db.ObjectId
+  body        String
+  internal    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, ticketId, createdAt])
+}
+
+// Knowledge base articles (Phase 4) — published articles appear in the public
+// portal and drive self-service deflection. viewCount increments on read of a
+// published article (cheap popularity signal). Version history is deferred.
+model KnowledgeArticle {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  title       String
+  slug        String
+  body        String
+  category    String   @default("general") // general | billing | technical | account | other
+  tags        Json     @default("[]")
+  published   Boolean  @default(false)
+  authorId    String   @db.ObjectId
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([orgId, environment, slug])
+  @@index([orgId, environment, published])
+  @@index([orgId, environment, category])
+}
+
+// SLA policy (ADR-016) — declarative per-priority response-hour targets. The
+// org's default policy is lazily seeded (like pipelines); targets are JSON so
+// they're data-editable later without a schema change.
+// targets = { low: { responseHours }, medium: { responseHours }, high: …, urgent: … }
+model SlaPolicy {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  name        String
+  targets     Json     @default("{}")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment, active])
+}
+
+// Public self-service portal pages (Phase 4) — a shareable URL where customers
+// submit tickets and look them up by reference (honeypot + rate limit, same
+// guards as public leads/booking). Slug is the public URL handle, unique per
+// org × environment. Same shape philosophy as LeadForm / BookingPage.
+model PortalPage {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId             String   @db.ObjectId
+  environment       String   @default("production") // ADR-008
+  name              String
+  slug              String // url-safe, unique per org
+  description       String?
+  autoCreateContact Boolean  @default(true)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@unique([orgId, environment, slug])
+  @@index([orgId])
+}
+
+// ── Phase 5 · Marketing Automation & Journey Orchestration ──────────────────
+// Campaigns are config entities (ADR-017): an email campaign targeted at a
+// dynamic Segment audience, with optional A/B subject variants. Sending writes
+// per-recipient Message + CampaignRecipient rows through the Phase-2 email
+// path (tracking + events for free). Counts are rollups kept on the row for
+// cheap list display; open/click rates and ROI are computed at read.
+model Campaign {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId             String   @db.ObjectId
+  environment       String   @default("production") // ADR-008
+  name              String
+  description       String?
+  status            String   @default("draft") // draft | active | paused | sent
+  channel           String   @default("email") // email v1 (ADR-014 mock provider)
+  subject           String
+  body              String
+  templateId        String?  @db.ObjectId // EmailTemplate used for the send (if any)
+  audienceSegmentId String?  @db.ObjectId // the Segment to send to (Phase 1 dynamic lists)
+  ab                Json     @default("{}") // { enabled, splitA, subjectB } — A/B subject variants
+  winner            String? // A | B | null — declared by open rate (or forced)
+  sendAt            DateTime? // scheduled send (v1: manual send; field reserved)
+  sentCount         Int      @default(0)
+  openedCount       Int      @default(0)
+  clickedCount      Int      @default(0)
+  createdBy         String   @db.ObjectId
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+}
+
+// One row per sent campaign message — the per-recipient attribution + A/B
+// comparison surface. variant = which subject the recipient got; status rolls
+// up from the Message's open/click tracking.
+model CampaignRecipient {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  campaignId  String   @db.ObjectId
+  contactId   String   @db.ObjectId
+  messageId   String?  @db.ObjectId
+  variant     String   @default("A") // A | B
+  status      String   @default("sent") // sent | opened | clicked
+  openedAt    DateTime?
+  clickedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, environment, campaignId])
+  @@index([orgId, environment, campaignId, variant])
+  @@index([orgId, contactId])
+}
+
+// Public landing pages (Phase 5) — a shareable URL with a headline/subtext +
+// themed form that captures routed leads. Slug is the public handle, unique per
+// org × env. Same shape philosophy as LeadForm / PortalPage; submissions tag
+// the lead's `custom` field with the linked campaign for attribution.
+model LandingPage {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId           String   @db.ObjectId
+  environment     String   @default("production") // ADR-008
+  name            String
+  slug            String
+  headline        String
+  subtext         String?
+  ctaLabel        String   @default("Submit")
+  successMessage  String   @default("Thanks — we'll be in touch soon.")
+  theme           String   @default("indigo") // indigo | emerald | rose | amber | slate
+  campaignId      String?  @db.ObjectId // attribution — the campaign this page drives
+  fields          Json     @default("[]") // [{ key: "firstName"|..., enabled: true }]
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  @@unique([orgId, environment, slug])
+  @@index([orgId])
+}
+
+// A customer journey (Phase 5, ADR-017): trigger (event or segment entry) →
+// ordered steps (wait / send_email / notify / create_task / update_record /
+// condition / end). The engine (server/lib/journeys.ts) subscribes to the
+// event bus like workflows and enrolls the triggering record; a ticker
+// advances waiting enrollments. Steps are data, not code (same philosophy as
+// Segment.criteria / Automation.actions).
+model Journey {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  environment  String   @default("production") // ADR-008
+  name         String
+  description  String?
+  trigger      Json     @default("{}") // { kind: "event", event } | { kind: "segment", segmentId }
+  steps        Json     @default("[]") // [{ type: "wait"|..., ... }]
+  active       Boolean  @default(true)
+  enrolledCount Int     @default(0)
+  createdBy    String   @db.ObjectId
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, active])
+}
+
+// One active row per (journey, entity) — the loop guard + ticker queue.
+model JourneyEnrollment {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  journeyId   String   @db.ObjectId
+  entity      String // contact | lead
+  entityId    String   @db.ObjectId
+  currentStep Int      @default(0)
+  status      String   @default("active") // active | waiting | completed | exited
+  enteredAt   DateTime @default(now())
+  nextRunAt   DateTime? // set by wait steps; the ticker advances when due
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([orgId, environment, journeyId, entityId])
+  @@index([orgId, environment, journeyId, status])
+  @@index([orgId, environment, status, nextRunAt])
+}
+
+// ── Phase 7 · CDP / Customer 360 ───────────────────────────────────────────
+// The UNIFIED customer identity (ADR-019). One row per person per org × env:
+// members are the raw contact/lead records that identity resolution decided
+// are the same person (email is the deterministic key, phone + name+company
+// are secondary rules — documented in docs/25-cdp-guide.md). The profile is
+// the anchor for behavioral events, the health engine, and the 360 view.
+// mergedFromIds keeps lineage when an admin merges two profiles
+// (customer.identity_merged).
+model IdentityProfile {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId            String   @db.ObjectId
+  environment      String   @default("production") // ADR-008
+  email            String // canonical (lowercased) — unique per org × env
+  firstName        String?
+  lastName         String?
+  phone            String?
+  company          String?
+  title            String?
+  accountId        String?  @db.ObjectId // primary account (from the highest-value member)
+  primaryContactId String?  @db.ObjectId // preferred contact member
+  primaryLeadId    String?  @db.ObjectId // preferred lead member
+  memberIds        Json     @default("[]") // ["contact:<id>", "lead:<id>", ...] — unified records
+  mergedFromIds    Json     @default("[]") // profile ids merged INTO this one (identity lineage)
+  tags             Json     @default("[]")
+  custom           Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  @@unique([orgId, environment, email])
+  @@index([orgId, environment])
+}
+
+// Behavioral event tracking (web / product / purchase / support / ads) —
+// DISTINCT from the system Event log: it records what the CUSTOMER did across
+// every touchpoint, keyed to an identity profile. Two ingestion paths: the
+// authenticated API (POST /api/cdp/behaviors — websites/products call this)
+// and the event-bus mirror (startCdpEngine mirrors selected system events —
+// email.opened, form.submitted, ticket.created, … — into behaviors).
+model BehaviorEvent {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId      String   @db.ObjectId
+  environment String  @default("production") // ADR-008
+  type       String // page_view | product_use | purchase | ad_click | email_opened | …
+  profileId  String?  @db.ObjectId // the identity this touchpoint belongs to
+  contactId  String?  @db.ObjectId // direct record reference (when known)
+  leadId     String?  @db.ObjectId
+  entity     String? // what was touched: message | landing | ticket | meeting | call | …
+  entityId   String?  @db.ObjectId
+  value      Float? // numeric payload (e.g. purchase amount)
+  meta       Json     @default("{}") // free-form context (page, campaign, referrer, …)
+  source     String   @default("api") // api | event-bus | seed
+  ip         String?
+  occurredAt DateTime @default(now()) // when the customer actually did it
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, environment, profileId, occurredAt])
+  @@index([orgId, environment, type, occurredAt])
+  @@index([orgId, environment, contactId])
+}
+
+// Persisted health snapshots (the customer health engine, ADR-019) — health is
+// COMPUTED on read (server/lib/health.ts); an admin refresh persists one row
+// per profile so the UI has history + deltas + the customer.health_changed /
+// customer.churn_risk_changed event emissions.
+model HealthScore {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  environment  String   @default("production") // ADR-008
+  profileId    String   @db.ObjectId
+  score        Int      @default(0) // 0–100 composite (explained in components)
+  churnRisk    Int      @default(0) // 0–100 (100 − health, adjusted)
+  components   Json     @default("[]") // [{ key, label, weight, value, inputs }] — the explanation
+  previousScore Int?   // delta vs the previous snapshot (health_changed trend)
+  refreshId    String?  // groups one refresh pass (all profiles share it)
+  createdAt    DateTime @default(now())
+
+  @@index([orgId, environment, profileId, createdAt])
+  @@index([orgId, environment, refreshId])
+}
+
+// Right-to-portability full-tenant export (🆕 blueprint) — one row per bundle.
+// The bundle is a single JSON file with EVERY org × environment collection
+// (data + audit + events), downloadable by the admin (GDPR portability).
+model PortabilityExport {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  status      String   @default("running") // running | success | failed
+  path        String? // relative path under backups/portability/
+  sizeBytes   Int      @default(0)
+  note        String?
+  error       String?
+  requestedBy String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([orgId, environment, createdAt])
+}
+
+// The journey run log (conflict-resolution surface, like AutomationRun) — one
+// row per executed step with its outcome.
+model JourneyStepRun {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  environment  String   @default("production")
+  journeyId    String   @db.ObjectId
+  enrollmentId String   @db.ObjectId
+  stepIndex    Int
+  stepType     String // wait | send_email | notify | create_task | update_record | condition | end
+  status       String   @default("ok") // ok | skipped | failed
+  detail       String?
+  createdAt    DateTime @default(now())
+
+  @@index([orgId, journeyId, createdAt])
+  @@index([orgId, enrollmentId])
+}
+
+// ── Phase 8 · AI Assistant Layer (non-agentic copilot) ────────────────────
+// The MODEL CATALOG + routing config (🆕 model router): one row per model the
+// org can route to. Rows are data (like SlaPolicy targets / automation
+// triggers) so costs, latency, capabilities, and region residency are editable
+// without a schema change. The router (server/lib/ai.ts) picks a row per
+// feature call based on the org's policy (settings.ai: { defaultModel,
+// preference: cost|quality|latency, preferredRegion }) + the row's
+// capabilities/region/weight — every decision is explainable and recorded on
+// the AIInsight row that the call produced.
+model ModelRoute {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production") // ADR-008
+  name          String // model id, e.g. "mock-fast" | "eu-mock-premium"
+  provider      String   @default("mock") // mock v1 (ADR-014 discipline — no external calls)
+  tier          String   @default("standard") // standard | premium
+  capabilities  Json     @default("[]") // ["summary","score","search","draft","sentiment","intent"]
+  costPer1kIn   Float    @default(0) // simulated $ per 1k input tokens
+  costPer1kOut  Float    @default(0) // simulated $ per 1k output tokens
+  latencyMs     Int      @default(0) // simulated avg latency (router + insight record)
+  region        String   @default("any") // any | eu | us — data-residency routing (🆕 blueprint)
+  active        Boolean  @default(true)
+  routingWeight Int      @default(1) // preference tie-break within a policy
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, environment, active])
+}
+
+// The durable AI OUTPUT record — every AI-assisted generation that a user (or
+// the engine) triggers writes one row: the human-readable content, the
+// structured payload (breakdown / evidence / inputs), the model that produced
+// it, latency, confidence, and what the data firewall redacted. This is the
+// explainability + audit surface ("show evidence", 🆕 confidence scoring).
+// Events: ai.summary_generated (kind summary/draft), ai.score_computed (kind
+// score), ai.confidence_flagged (lowConfidence).
+model AiInsight {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production") // ADR-008
+  kind          String // summary | score | sentiment | intent | draft | search
+  feature       String // e.g. "deal.summary" | "lead.score" | "call.summary"
+  entity        String? // contact | account | lead | opportunity | ticket | call | meeting | …
+  entityId      String?  @db.ObjectId
+  title         String? // short label, e.g. "Northwind — Retail Platform Expansion"
+  content       String? // human-readable output (summary text / drafted email / reason)
+  confidence    Int      @default(0) // 0–100 (🆕 confidence scoring — surfaced in the UI)
+  lowConfidence Boolean  @default(false) // confidence < threshold → ai.confidence_flagged
+  modelId       String? // the routed model that produced it
+  latencyMs     Int      @default(0)
+  payload       Json     @default("{}") // structured output: breakdown, evidence, inputs
+  redacted      Json     @default("[]") // [{ type, count }] — what the firewall stripped
+  createdBy     String   @db.ObjectId
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, environment, createdAt])
+  @@index([orgId, environment, kind])
+  @@index([orgId, environment, entity, entityId])
+}
+
+// Short-term AI memory (blueprint entity) — the copilot can stash per-user or
+// per-record context (last query, preferred tone, session notes) with a TTL.
+// The AI engine ticker (startAiEngine) purges expired rows like the journey
+// ticker advances due waits.
+model AiMemory {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  scopeType   String // user | entity
+  scopeId     String   @db.ObjectId
+  key         String
+  value       Json     @default("{}")
+  expiresAt   DateTime? // TTL — expired rows are purged by the engine ticker
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment, scopeType, scopeId])
+  @@index([orgId, environment, expiresAt])
+}
+
+// ── Phase 9 · AI Agent Platform (autonomous, governed) ─────────────────────
+// An AGENT is a declarative row (like Automation/Journey — the ADR-015/017
+// pattern) that AUTONOMOUSLY proposes work: it watches triggers, gathers a
+// firewalled context, decides actions with a RISK TIER (🟢 automatic, 🟡
+// approval required, 🔴 human required — blueprint §3.4), and executes only
+// what its governance allows. The engine (server/lib/agents.ts) is an
+// event-bus subscriber (like automations) + a manual-run + test endpoints.
+// killSwitched is the per-agent kill switch (🆕 blueprint); the org-wide kill
+// switch lives in Organization.settings.agents.killSwitched.
+model Agent {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production") // ADR-008
+  name           String
+  kind           String   @default("custom") // lead | sales | service | renewal | custom (template)
+  description    String?
+  trigger        Json     @default("{}") // { kind: "event", event: "lead.created" } | { kind: "manual" }
+  rules          Json     @default("[]") // [{ field, op, value }] — who/what this agent acts on
+  tools          Json     @default("[]") // ["create_task","notify","update_record","send_email","create_ticket"]
+  tierPolicy     Json     @default("{}") // per-tool risk overrides: { tool: "green"|"yellow"|"red" }
+  memoryEnabled  Boolean  @default(true)
+  active         Boolean  @default(true)
+  killSwitched   Boolean  @default(false) // 🆕 per-agent kill switch
+  runCount       Int      @default(0)
+  successCount   Int      @default(0) // runs where every action succeeded
+  approveCount   Int      @default(0) // runs that needed 🟡 approval
+  costTotal      Float    @default(0) // 🆕 cost metering (simulated tokens × ModelRoute cost)
+  createdBy      String   @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, active])
+}
+
+// One AGENT EXECUTION (the audit trail: input → data used → reasoning →
+// proposed actions → approval → result). Each run proposes actions; a run is
+// complete when its actions are resolved (executed / rejected / skipped). The
+// run row IS the AI audit trail (blueprint: input → data used → reasoning →
+// action → result → approval).
+model AgentRun {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  agentId       String   @db.ObjectId
+  trigger       String   @default("manual") // event | manual | test
+  eventType     String? // the event that fired this run (when triggered by the bus)
+  entity        String // contact | lead | opportunity | ticket | …
+  entityId      String   @db.ObjectId
+  context       Json     @default("{}") // the firewalled input + data used (audit)
+  reasoning     String? // the agent's explanation for its actions
+  status        String   @default("proposed") // proposed | waiting_approval | executed | rejected | failed | skipped
+  riskSummary   Json     @default("{}") // { green: n, yellow: n, red: n }
+  cost          Float    @default(0) // simulated cost of this run
+  createdBy     String   @db.ObjectId // the agent (creator = agent id) or user for manual
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, agentId, createdAt])
+  @@index([orgId, environment, status])
+  @@index([orgId, entity, entityId])
+}
+
+// One PROPOSED/EXECUTED ACTION within a run — the risk tier is recorded, and
+// the approval path (🟡) / human step (🔴) lives here: proposed → approved /
+// rejected → executed. AgentAction rows + AgentRun rows together are the full
+// AI audit trail.
+model AgentAction {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  runId         String   @db.ObjectId
+  agentId       String   @db.ObjectId
+  tool          String // create_task | notify | update_record | send_email | create_ticket
+  riskTier      String   @default("green") // green 🟢 | yellow 🟡 | red 🔴
+  params        Json     @default("{}") // the tool call arguments
+  reason        String? // why the agent proposed this
+  status        String   @default("proposed") // proposed | approved | rejected | executed | failed
+  result        Json     @default("{}") // outcome detail (entityId created, error, …)
+  approvedBy    String?  @db.ObjectId // who approved the 🟡/🔴 action
+  cost          Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, runId])
+  @@index([orgId, agentId, status])
+}
+
+// Agent MEMORY — the agent's durable per-entity scratchpad (blueprint entity).
+// Distinct from AiMemory (the copilot's per-user notes): this is what the
+// agent learned about a contact/lead/deal (e.g. "buyer wants security
+// deep-dive", "deal in negotiation"), keyed by entity so it persists across
+// runs and feeds future context.
+model AgentMemory {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  agentId     String   @db.ObjectId
+  entity      String // contact | lead | opportunity | …
+  entityId    String   @db.ObjectId
+  key         String
+  value       Json     @default("{}")
+  expiresAt   DateTime? // TTL — the agent engine ticker purges expired rows
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment, agentId, entity, entityId])
+  @@index([orgId, environment, expiresAt])
+}
+
+// The TESTING / SIMULATION LAB (🆕 blueprint) — replay a historical scenario
+// (an event + entity) against an agent WITHOUT executing anything. The result
+// is the proposed-action list + risk summary + predicted cost; a pass means
+// every action is executable under governance (no red-tier block, no tool
+// beyond the allowlist). AgentTest rows keep the simulation history.
+model AgentTest {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  agentId     String   @db.ObjectId
+  name        String // scenario name
+  entity      String
+  entityId    String   @db.ObjectId
+  status      String   @default("passed") // passed | failed | blocked
+  actions     Json     @default("[]") // the proposed actions (dry-run, not executed)
+  riskSummary Json     @default("{}") // { green, yellow, red }
+  predictedCost Float  @default(0)
+  note        String? // why it failed / was blocked
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, agentId, createdAt])
+}
+

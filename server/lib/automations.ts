@@ -36,8 +36,19 @@ export const EVENT_OBJECT_TYPES: Record<string, string> = {
   "lead.created": "lead",
   "contact.created": "contact",
   "task.completed": "task",
+  // Phase 4 · Customer Service — tickets are automatable like any object.
+  "ticket.created": "ticket",
+  "ticket.status_changed": "ticket", // optional `to` status filter (like deal.stage_changed)
+  "ticket.escalated": "ticket",
+  // Phase 5 · Marketing — landing-page submissions are automatable (the
+  // entity is the lead the form created).
+  "form.submitted": "lead",
 };
 export const TRIGGER_EVENTS = Object.keys(EVENT_OBJECT_TYPES);
+
+// Events whose trigger supports a `to` filter (deal.stage_changed → won,
+// ticket.status_changed → resolved). Used for validation + engine matching.
+export const TRIGGERS_WITH_TO = ["deal.stage_changed", "ticket.status_changed"];
 
 export const CONDITION_OPS = ["eq", "neq", "contains", "not_contains", "gt", "gte", "lt", "lte", "in", "not_in"];
 
@@ -70,8 +81,8 @@ export function parseWorkflowParts(raw: unknown): {
   const event = String(trigger.event ?? "");
   if (!TRIGGER_EVENTS.includes(event)) throw badRequest(`Unknown trigger event "${event}"`);
   const objectType = EVENT_OBJECT_TYPES[event];
-  if (event === "deal.stage_changed" && trigger.to !== undefined && typeof trigger.to !== "string") {
-    throw badRequest("Trigger `to` (stage) must be a string");
+  if (TRIGGERS_WITH_TO.includes(event) && trigger.to !== undefined && typeof trigger.to !== "string") {
+    throw badRequest("Trigger `to` (stage/status) must be a string");
   }
 
   const def = getObjectDef(objectType);
@@ -111,7 +122,7 @@ export function parseWorkflowParts(raw: unknown): {
   }
 
   return {
-    trigger: { kind: "event", event, ...(event === "deal.stage_changed" && trigger.to ? { to: String(trigger.to) } : {}) },
+    trigger: { kind: "event", event, ...(TRIGGERS_WITH_TO.includes(event) && trigger.to ? { to: String(trigger.to) } : {}) },
     conditions,
     actions,
   };
@@ -184,10 +195,11 @@ export async function runAutomation(
   if (String(trigger.kind) !== "event" || trigger.event !== event.type) {
     return { matched: false, note: `trigger ${trigger.event ?? "?"} ≠ ${event.type}`, actions: [] };
   }
-  // Extra trigger filter (e.g. deal.stage_changed → to: "won").
-  if (event.type === "deal.stage_changed" && trigger.to && event.payload?.to !== trigger.to) {
-    await logRun(auto, event, triggeredBy, false, `stage ${String(event.payload?.to)} ≠ ${trigger.to}`, []);
-    return { matched: false, note: `stage ${String(event.payload?.to)} ≠ ${trigger.to}`, actions: [] };
+  // Extra trigger filter (e.g. deal.stage_changed → to: "won",
+  // ticket.status_changed → to: "resolved").
+  if (trigger.to && event.payload?.to !== undefined && String(event.payload.to) !== trigger.to) {
+    await logRun(auto, event, triggeredBy, false, `stage/status ${String(event.payload.to)} ≠ ${trigger.to}`, []);
+    return { matched: false, note: `stage/status ${String(event.payload.to)} ≠ ${trigger.to}`, actions: [] };
   }
 
   // Loop guard: skip a repeat of the same (workflow, entity, event) within 30s.

@@ -47,6 +47,32 @@ import timelineRoutes from "./routes/timeline";
 import automationRoutes from "./routes/automations";
 import notificationRoutes from "./routes/notifications";
 import { startAutomationEngine } from "./lib/automations";
+// Phase 4 · Customer Service / Helpdesk
+import ticketRoutes from "./routes/tickets";
+import knowledgeRoutes from "./routes/knowledge";
+import portalRoutes from "./routes/portals";
+import publicPortalRoutes from "./routes/public-portal";
+// Phase 5 · Marketing Automation & Journey Orchestration
+import campaignRoutes from "./routes/campaigns";
+import landingPageRoutes from "./routes/landing-pages";
+import publicLandingRoutes from "./routes/public-landing";
+import journeyRoutes from "./routes/journeys";
+import deliverabilityRoutes from "./routes/deliverability";
+import { startJourneyEngine } from "./lib/journeys";
+// Phase 6 · Analytics, Forecasting & Business Intelligence
+import analyticsRoutes from "./routes/analytics";
+import reportRoutes from "./routes/reports";
+// Phase 7 · CDP / Customer 360
+import cdpRoutes from "./routes/cdp";
+import portabilityRoutes from "./routes/portability";
+import { startCdpEngine } from "./lib/cdp";
+// Phase 8 · AI Assistant Layer (non-agentic copilot)
+import aiRoutes from "./routes/ai";
+import modelRoutes from "./routes/models";
+import { startAiEngine } from "./lib/ai";
+// Phase 9 · AI Agent Platform (autonomous, governed)
+import agentRoutes from "./routes/agents";
+import { startAgentEngine } from "./lib/agents";
 import { requireFeature } from "./lib/features";
 import { objectRouter } from "./routes/object-routes";
 import { createObjectService } from "./lib/object-service";
@@ -69,6 +95,11 @@ registerObject({
 });
 registerObject({ type: "task", eventPrefix: "task" });
 registerObject({ type: "note", eventPrefix: "note", ownerField: "authorId" });
+// Phase 4 · Customer Service — tickets are a first-class object (ADR-016):
+// generic CRUD/audit/events/search/custom fields + a thin service-specific
+// router (server/routes/tickets.ts). The generic service emits
+// ticket.created/updated/deleted/status_changed.
+registerObject({ type: "ticket", eventPrefix: "ticket", relations: [{ field: "contactId", type: "contact" }, { field: "accountId", type: "account" }] });
 
 const app = express();
 app.disable("x-powered-by");
@@ -111,6 +142,28 @@ app.use("/api/timeline", timelineRoutes);
 // Phase 3 · Automation & Workflow Engine (feature-gated)
 app.use("/api/automations", requireFeature("automation.workflows"), automationRoutes);
 app.use("/api/notifications", requireFeature("automation.workflows"), notificationRoutes);
+// Phase 4 · Customer Service / Helpdesk (feature-gated)
+app.use("/api/tickets", requireFeature("service.tickets"), ticketRoutes);
+app.use("/api/portals", requireFeature("service.tickets"), portalRoutes);
+app.use("/api/knowledge", requireFeature("service.knowledge"), knowledgeRoutes);
+app.use("/api/public/portal", publicPortalRoutes); // public intake (no auth)
+// Phase 5 · Marketing Automation & Journey Orchestration (feature-gated)
+app.use("/api/campaigns", requireFeature("marketing.campaigns"), campaignRoutes);
+app.use("/api/landing-pages", requireFeature("marketing.landing"), landingPageRoutes);
+app.use("/api/journeys", requireFeature("marketing.journeys"), journeyRoutes);
+app.use("/api/deliverability", requireFeature("marketing.deliverability"), deliverabilityRoutes);
+app.use("/api/public/pages", publicLandingRoutes); // public landing intake (no auth)
+// Phase 6 · Analytics, Forecasting & BI (feature-gated)
+app.use("/api/analytics", requireFeature("analytics.metrics"), analyticsRoutes);
+app.use("/api/reports", requireFeature("analytics.reports"), reportRoutes);
+// Phase 7 · CDP / Customer 360 (feature-gated)
+app.use("/api/cdp", requireFeature("cdp.profiles"), cdpRoutes);
+app.use("/api/portability", requireFeature("cdp.portability"), portabilityRoutes);
+// Phase 8 · AI Assistant Layer (feature-gated)
+app.use("/api/ai", requireFeature("ai.assistant"), aiRoutes);
+app.use("/api/models", requireFeature("ai.modelRouter"), modelRoutes);
+// Phase 9 · AI Agent Platform (feature-gated)
+app.use("/api/agents", requireFeature("ai.agents"), agentRoutes);
 // Public (no auth) — tracking pixels/click links + public booking pages.
 app.use("/api/t", trackingRoutes);
 app.use("/api/public/booking", publicBookingRoutes);
@@ -143,6 +196,14 @@ app.use(errorHandler);
 // ── Boot ──────────────────────────────────────────────────────────────────────
 // Phase 3: subscribe the workflow engine to the event bus before serving.
 startAutomationEngine();
+// Phase 5: subscribe the journey engine + start its ticker.
+startJourneyEngine();
+// Phase 7: subscribe the CDP behavior mirror (system events → customer behaviors).
+startCdpEngine();
+// Phase 8: the AI copilot engine (model router + firewall + memory TTL purger).
+startAiEngine();
+// Phase 9: the agent engine (risk-tiered autonomous actions + memory ticker).
+startAgentEngine();
 
 const server = app.listen(env.port, () => {
   console.log(`\n  QORVEXA CRM  ·  http://localhost:${env.port}`);

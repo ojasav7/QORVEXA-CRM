@@ -67,6 +67,42 @@ export const OBJECT_META: Record<string, ObjectMeta> = {
     columns: ["title", "priority", "status", "dueAt"],
     formFields: ["title", "description", "priority", "status", "dueAt"],
   },
+  // Phase 4 · Customer Service — tickets are a first-class object type (ADR-016).
+  ticket: {
+    type: "ticket",
+    label: "Ticket",
+    plural: "Tickets",
+    path: "/tickets",
+    titleField: "subject",
+    columns: ["reference", "subject", "priority", "status", "channel", "slaDueAt"],
+    formFields: ["subject", "description", "priority", "channel", "contactId", "accountId"],
+  },
+};
+
+export const TICKET_STATUSES = ["new", "open", "pending", "resolved", "closed"];
+export const TICKET_PRIORITIES = ["low", "medium", "high", "urgent"];
+export const TICKET_CHANNELS = ["email", "web", "chat", "whatsapp", "sms", "phone", "social"];
+
+export const PRIORITY_TONES: Record<string, string> = {
+  low: "default",
+  medium: "blue",
+  high: "amber",
+  urgent: "rose",
+};
+
+export const STATUS_TONES: Record<string, string> = {
+  new: "blue",
+  open: "violet",
+  pending: "amber",
+  resolved: "green",
+  closed: "default",
+};
+
+export const SLA_TONES: Record<string, string> = {
+  on_track: "green",
+  due_soon: "amber",
+  breached: "rose",
+  "n/a": "default",
 };
 
 // Phase 2-lite multi-pipeline — client mirror of server/lib/pipelines.ts shapes.

@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Users, Building2, Target, Briefcase, CheckSquare,
   Activity, Settings, LogOut, Search, Menu, X, Upload, GitBranch, ListFilter,
   Mail, Phone, CalendarDays, CalendarClock, FileText, Bell, GitMerge, CheckCheck,
-  Sun, Moon,
+  Sun, Moon, LifeBuoy, BookOpen, Globe, Megaphone, Rocket, Waypoints, Gauge,
+  BarChart3, LayoutDashboard as ReportIcon, UserRound, Package, Sparkles, Route as RouteIcon,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useSession, useFeature } from "../App";
@@ -30,6 +31,18 @@ export default function Layout() {
   const showCalling = useFeature("comm.calling");
   const showCalendar = useFeature("comm.calendar");
   const showWorkflows = useFeature("automation.workflows");
+  const showTickets = useFeature("service.tickets");
+  const showKnowledge = useFeature("service.knowledge");
+  const showCampaigns = useFeature("marketing.campaigns");
+  const showLanding = useFeature("marketing.landing");
+  const showJourneys = useFeature("marketing.journeys");
+  const showDeliverability = useFeature("marketing.deliverability");
+  const showAnalytics = useFeature("analytics.metrics");
+  const showReports = useFeature("analytics.reports");
+  const showCustomers = useFeature("cdp.profiles");
+  const showPortability = useFeature("cdp.portability");
+  const showCopilot = useFeature("ai.assistant");
+  const showModels = useFeature("ai.modelRouter");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -134,6 +147,99 @@ export default function Layout() {
               Workflows
             </NavLink>
           )}
+          {(showTickets || showKnowledge) && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Support</div>
+          )}
+          {showTickets && (
+            <NavLink to="/tickets" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <LifeBuoy className="size-4" />
+              Tickets
+            </NavLink>
+          )}
+          {showKnowledge && (
+            <NavLink to="/knowledge" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <BookOpen className="size-4" />
+              Knowledge
+            </NavLink>
+          )}
+          {showTickets && (
+            <NavLink to="/portals" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Globe className="size-4" />
+              Portals
+            </NavLink>
+          )}
+          {(showCampaigns || showLanding || showJourneys || showDeliverability) && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Marketing</div>
+          )}
+          {showCampaigns && (
+            <NavLink to="/campaigns" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Megaphone className="size-4" />
+              Campaigns
+            </NavLink>
+          )}
+          {showLanding && (
+            <NavLink to="/landing" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Rocket className="size-4" />
+              Landing
+            </NavLink>
+          )}
+          {showJourneys && (
+            <NavLink to="/journeys" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Waypoints className="size-4" />
+              Journeys
+            </NavLink>
+          )}
+          {showDeliverability && (
+            <NavLink to="/deliverability" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Gauge className="size-4" />
+              Deliverability
+            </NavLink>
+          )}
+          {(showAnalytics || showReports) && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Analytics</div>
+          )}
+          {showAnalytics && (
+            <NavLink to="/analytics" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <BarChart3 className="size-4" />
+              Dashboards
+            </NavLink>
+          )}
+          {showReports && (
+            <NavLink to="/reports" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <ReportIcon className="size-4" />
+              Reports
+            </NavLink>
+          )}
+          {(showCustomers || showPortability) && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Customer data</div>
+          )}
+          {showCustomers && (
+            <NavLink to="/customers" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <UserRound className="size-4" />
+              Customers
+            </NavLink>
+          )}
+          {showPortability && (
+            <NavLink to="/portability" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Package className="size-4" />
+              Portability
+            </NavLink>
+          )}
+          {(showCopilot || showModels) && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">AI</div>
+          )}
+          {showCopilot && (
+            <NavLink to="/copilot" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Sparkles className="size-4" />
+              Copilot
+            </NavLink>
+          )}
+          {showModels && (
+            <NavLink to="/models" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <RouteIcon className="size-4" />
+              Model router
+            </NavLink>
+          )}
           <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
             <Settings className="size-4" />
             Settings
@@ -207,6 +313,86 @@ export default function Layout() {
               {showWorkflows && (
                 <NavLink to="/workflows" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
                   <GitMerge className="size-4" /> Workflows
+                </NavLink>
+              )}
+              {(showTickets || showKnowledge) && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Support</div>
+              )}
+              {showTickets && (
+                <NavLink to="/tickets" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <LifeBuoy className="size-4" /> Tickets
+                </NavLink>
+              )}
+              {showKnowledge && (
+                <NavLink to="/knowledge" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <BookOpen className="size-4" /> Knowledge
+                </NavLink>
+              )}
+              {showTickets && (
+                <NavLink to="/portals" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Globe className="size-4" /> Portals
+                </NavLink>
+              )}
+              {(showCampaigns || showLanding || showJourneys || showDeliverability) && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Marketing</div>
+              )}
+              {showCampaigns && (
+                <NavLink to="/campaigns" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Megaphone className="size-4" /> Campaigns
+                </NavLink>
+              )}
+              {showLanding && (
+                <NavLink to="/landing" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Rocket className="size-4" /> Landing
+                </NavLink>
+              )}
+              {showJourneys && (
+                <NavLink to="/journeys" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Waypoints className="size-4" /> Journeys
+                </NavLink>
+              )}
+              {showDeliverability && (
+                <NavLink to="/deliverability" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Gauge className="size-4" /> Deliverability
+                </NavLink>
+              )}
+              {(showAnalytics || showReports) && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Analytics</div>
+              )}
+              {showAnalytics && (
+                <NavLink to="/analytics" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <BarChart3 className="size-4" /> Dashboards
+                </NavLink>
+              )}
+              {showReports && (
+                <NavLink to="/reports" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <ReportIcon className="size-4" /> Reports
+                </NavLink>
+              )}
+              {(showCustomers || showPortability) && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Customer data</div>
+              )}
+              {showCustomers && (
+                <NavLink to="/customers" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <UserRound className="size-4" /> Customers
+                </NavLink>
+              )}
+              {showPortability && (
+                <NavLink to="/portability" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Package className="size-4" /> Portability
+                </NavLink>
+              )}
+              {(showCopilot || showModels) && (
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">AI</div>
+              )}
+              {showCopilot && (
+                <NavLink to="/copilot" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Sparkles className="size-4" /> Copilot
+                </NavLink>
+              )}
+              {showModels && (
+                <NavLink to="/models" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <RouteIcon className="size-4" /> Model router
                 </NavLink>
               )}
               <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>

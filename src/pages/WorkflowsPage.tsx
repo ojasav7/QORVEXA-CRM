@@ -13,11 +13,19 @@ const TRIGGER_EVENTS: { event: string; label: string; objectType: string }[] = [
   { event: "lead.created", label: "When a lead is created", objectType: "lead" },
   { event: "contact.created", label: "When a contact is created", objectType: "contact" },
   { event: "task.completed", label: "When a task is completed", objectType: "task" },
+  // Phase 4 · Customer Service
+  { event: "ticket.created", label: "When a ticket is created", objectType: "ticket" },
+  { event: "ticket.status_changed", label: "When a ticket changes status", objectType: "ticket" },
+  { event: "ticket.escalated", label: "When a ticket is escalated", objectType: "ticket" },
+  // Phase 5 · Marketing — landing-page submissions
+  { event: "form.submitted", label: "When a landing page form is submitted", objectType: "lead" },
 ];
 const TRIGGER_LABELS: Record<string, string> = Object.fromEntries(TRIGGER_EVENTS.map((t) => [t.event, t.label]));
 const OBJECT_TYPE_BY_EVENT: Record<string, string> = Object.fromEntries(TRIGGER_EVENTS.map((t) => [t.event, t.objectType]));
 // API route per object type (opportunity → opportunities — not a naive +"s").
-const API_PATH_BY_TYPE: Record<string, string> = { opportunity: "/api/opportunities", lead: "/api/leads", contact: "/api/contacts", task: "/api/tasks" };
+const API_PATH_BY_TYPE: Record<string, string> = { opportunity: "/api/opportunities", lead: "/api/leads", contact: "/api/contacts", task: "/api/tasks", ticket: "/api/tickets" };
+// Trigger events that support a `to` filter (stage/status picker).
+const TRIGGERS_WITH_TO = ["deal.stage_changed", "ticket.status_changed"];
 
 const OPS: [string, string][] = [
   ["eq", "is"], ["neq", "is not"], ["contains", "contains"], ["not_contains", "doesn't contain"],
@@ -275,12 +283,21 @@ function WorkflowModal({ initial, isAdmin, onClose, onDone }: { initial: Automat
             >
               {TRIGGER_EVENTS.map((t) => <option key={t.event} value={t.event}>{t.label}</option>)}
             </select>
-            {form.event === "deal.stage_changed" && (
+            {TRIGGERS_WITH_TO.includes(form.event) && form.event === "deal.stage_changed" && (
               <>
                 <span className="text-xs text-slate-500">to stage</span>
                 <select className="input w-40" value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })}>
                   <option value="">any stage</option>
                   {stageOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </>
+            )}
+            {TRIGGERS_WITH_TO.includes(form.event) && form.event === "ticket.status_changed" && (
+              <>
+                <span className="text-xs text-slate-500">to status</span>
+                <select className="input w-40" value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })}>
+                  <option value="">any status</option>
+                  {["new", "open", "pending", "resolved", "closed"].map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </>
             )}

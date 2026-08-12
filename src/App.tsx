@@ -22,6 +22,21 @@ import MeetingsPage from "./pages/MeetingsPage";
 import BookingPagesPage from "./pages/BookingPagesPage";
 import PublicBookingPage from "./pages/PublicBookingPage";
 import WorkflowsPage from "./pages/WorkflowsPage";
+import TicketsPage from "./pages/TicketsPage";
+import KnowledgePage from "./pages/KnowledgePage";
+import PortalsPage from "./pages/PortalsPage";
+import PublicPortalPage from "./pages/PublicPortalPage";
+import CampaignsPage from "./pages/CampaignsPage";
+import LandingPagesPage from "./pages/LandingPagesPage";
+import PublicLandingPage from "./pages/PublicLandingPage";
+import JourneysPage from "./pages/JourneysPage";
+import DeliverabilityPage from "./pages/DeliverabilityPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
+import ReportsPage from "./pages/ReportsPage";
+import CustomersPage from "./pages/CustomersPage";
+import PortabilityPage from "./pages/PortabilityPage";
+import CopilotPage from "./pages/CopilotPage";
+import ModelsPage from "./pages/ModelsPage";
 
 export type FeatureState = {
   enabled: boolean;
@@ -114,6 +129,8 @@ export default function App() {
         <Route path="/login" element={session.user ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/forms/:slug" element={<FormPage />} />
         <Route path="/b/:slug" element={<PublicBookingPage />} />
+        <Route path="/p/:slug" element={<PublicPortalPage />} />
+        <Route path="/l/:slug" element={<PublicLandingPage />} />
         <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Dashboard />} />
           <Route path="contacts" element={<ObjectPage type="contact" />} />
@@ -130,6 +147,19 @@ export default function App() {
           <Route path="booking" element={<BookingPagesPage />} />
           <Route path="events" element={<EventsPage />} />
           <Route path="workflows" element={<WorkflowsPage />} />
+          <Route path="tickets" element={<TicketsPage />} />
+          <Route path="knowledge" element={<KnowledgePage />} />
+          <Route path="portals" element={<PortalsPage />} />
+          <Route path="campaigns" element={<CampaignsPage />} />
+          <Route path="landing" element={<LandingPagesPage />} />
+          <Route path="journeys" element={<JourneysPage />} />
+          <Route path="deliverability" element={<DeliverabilityPage />} />
+          <Route path="analytics" element={<AnalyticsPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+          <Route path="portability" element={<PortabilityPage />} />
+          <Route path="copilot" element={<CopilotPage />} />
+          <Route path="models" element={<ModelsPage />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

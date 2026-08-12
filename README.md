@@ -11,7 +11,7 @@
 
 # QORVEXA CRM
 
-**The intelligent operating system for business** — Phases 0–3 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking) + **Automation & Workflow Engine**.
+**The intelligent operating system for business** — Phases 0–8 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking) + **Automation & Workflow Engine** + **Customer Service** (tickets, SLAs, portal, knowledge base) + **Marketing Automation** (campaigns, journeys, landing pages, deliverability) + **Analytics, Forecasting & BI** (dashboards, metrics, forecasts, reports) + **CDP / Customer 360** (identity resolution, unified profiles, behavior tracking, health engine, portability) + **AI Assistant Layer** (model router, data firewall, summaries, drafts, AI scoring, semantic search).
 
 </div>
 
@@ -34,6 +34,32 @@ A production-shaped CRM implementing the architecture principles from `QORVEXATh
 - **Calendar + booking (Phase 2)** — meetings with date-range calendar view, plus **public booking pages** (`/b/<slug>`) with round-robin host assignment, honeypot + rate limiting, and server-side slot validation.
 - **Auto-logged record timeline (Phase 2)** — every email, call, meeting, and note against a record appears on its detail drawer automatically.
 - **Workflows & automation (Phase 3)** — visual **trigger → condition → action** builder over the event bus (`deal.stage_changed → won → notify + create task`), the reserved **`task.completed`** event, in-app **notifications** (header bell), a per-run **action log** with a synchronous **test endpoint**, and duplicate-workflow detection — see `docs/15-spec-phase3.md`.
+- **Tickets & helpdesk (Phase 4)** — tickets as a first-class object with per-org `TKT-####` references, queue tabs, reply threads (incl. internal notes), assignment, escalation, and **convert-to-lead** — see `docs/17-spec-phase4.md`.
+- **SLAs (Phase 4)** — priority-based response deadlines (`SlaPolicy`, lazily seeded), live `slaStatus` badges (`ok / warning / breached`), and an admin **breach sweep** that flags + auto-escalates high/urgent overdue tickets.
+- **Public support portal (Phase 4)** — admin-configured portal pages at `/p/<slug>`: no-auth ticket submission (honeypot + rate limit) and a **no-leak status lookup** (email + reference must match) that shows public replies.
+- **Knowledge base (Phase 4)** — admin-authored articles with categories, tags, search, and slugs; published articles appear in the portal with view tracking.
+- **Legal hold (Phase 4)** — admin-only compliance lock that freezes a ticket against edits, replies, and deletion.
+- **Campaigns (Phase 5)** — send-to-segment email campaigns with **A/B subjects**, live open/click/ROI stats, and a winner declaration — see `docs/19-spec-phase5.md`.
+- **Landing pages (Phase 5)** — admin pages with globally-unique slugs and a public capture form at `/l/<slug>` (honeypot + rate limit + no-leak duplicates) that creates routed leads tagged with the source campaign.
+- **Journeys (Phase 5)** — the **journey orchestration engine**: event/segment triggers → `wait` / `send_email` / `notify` / `create_task` / `update_record` / `condition` / `end` steps, with a 60s ticker advancing due waits, a per-step run log, and a synchronous test endpoint.
+- **Deliverability monitoring (Phase 5)** — live email health (bounce/open/click rates, 0–100 health score) with simulated provider events.
+- **Analytics & metrics (Phase 6)** — a metrics library computed **on read** (never stale) across sales / marketing / service / revenue / executive dashboards, with **data lineage** on every number — see `docs/21-spec-phase6.md`.
+- **Sales forecasting (Phase 6)** — the **weighted pipeline** (pipeline / weighted / commit / best-case buckets, per-stage + per-owner) with admin **snapshot history** (`forecast.updated`).
+- **Predictive v1 (Phase 6)** — transparent conversion-likelihood, churn-risk, and LTV scores with documented inputs.
+- **Report builder (Phase 6)** — saved dashboard configs (`kind` + metric keys) that render **live** metrics — reports can never go stale.
+- **Metric thresholds + alerts (Phase 6)** — org-configurable thresholds that trip admin notifications + `metric.threshold_breached` events.
+- **Identity resolution + Customer 360 (Phase 7)** — one unified profile per person (email is the canonical key), built continuously by an event-bus subscriber — a contact + a lead with the same email become one identity with merge lineage (`customer.identity_merged`) — see `docs/23-spec-phase7.md`.
+- **Behavioral tracking (Phase 7)** — a `BehaviorEvent` log of what the customer did (email opens/clicks/replies, form submits, tickets, calls, meetings) fed by a public API and an automatic **event-bus mirror**, all resolved to the unified profile.
+- **AI model router (Phase 8)** — a `ModelRoute` catalog + org-configurable routing policy (`cost / quality / latency`, EU **data-residency pin**); every generation returns an explainable `{ picked, reason, candidates }` decision — see `docs/26-spec-phase8.md`.
+- **Data firewall (Phase 8)** — every prompt is server-built and redacted **before the model sees it** (emails, phones, cards, long numbers → `[REDACTED]`) with a redaction log shown in the UI and a receipt endpoint.
+- **AI summaries + drafts (Phase 8)** — record summaries (deal/contact/account/ticket), **call summaries from transcripts**, **Customer-360 profile summaries**, and tone-controlled **email drafts**.
+- **Explained AI scoring (Phase 8)** — lead (5 components) and deal (4 components) scores, each with value + weight + why; plus sentiment + buying-intent detection.
+- **Semantic search (Phase 8)** — natural-language queries like *"won deals over 50k"* parse into predicates (`amount ≥ 50000`) and rank hits with evidence + confidence.
+- **Confidence flagging (Phase 8)** — every AI output carries a 0–100 confidence; below-threshold results trip an admin alert ("Low AI confidence ⚠️") via the header bell.
+- **Short-term AI memory (Phase 8)** — the assistant's scratchpad (org/user scoped, TTL), private per user.
+- **Relationship graph v1 (Phase 7)** — the **buying committee** derived on read with **influence scores** from real touchpoints (email reply 4, call 3, meeting 5, primary +10) — see `docs/25-cdp-guide.md`.
+- **Customer health engine (Phase 7)** — an **explained** composite score (engagement 40 + support 25 + revenue 25 + recency 10) with churn risk; every component shows its formula + raw inputs.
+- **Right-to-portability (Phase 7)** — one admin click downloads a **JSON bundle of every org × environment collection** (objects, comms, tickets, marketing, analytics, CDP, events, audit) with password hashes stripped.
 - **No-code object builder (v1)** — admins define custom fields per object type via the UI; values are stored per-record and rendered dynamically.
 - **Multi-tenant from Day 1** — every document carries `orgId`; isolation is enforced on every query.
 - **Audit trail** — every mutation is logged with a field-level diff (`before`/`after`/`changed`), the foundation for the Phase-15 Time Machine.
@@ -110,6 +136,18 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/14-phase2-build-report.md](docs/14-phase2-build-report.md) | Phase 2 completion — Communication Core shipped end-to-end, verification evidence |
 | [docs/15-spec-phase3.md](docs/15-spec-phase3.md) | The spec that drove Phase 3 — the workflow engine (trigger → condition → action), `task.completed`, notifications, duplicate guard |
 | [docs/16-phase3-build-report.md](docs/16-phase3-build-report.md) | Phase 3 completion — workflow engine + notifications shipped end-to-end, verification evidence |
+| [docs/17-spec-phase4.md](docs/17-spec-phase4.md) | The spec that drove Phase 4 — tickets as a first-class object, SLAs, omnichannel intake, knowledge base, public portal, legal hold |
+| [docs/18-phase4-build-report.md](docs/18-phase4-build-report.md) | Phase 4 completion — Customer Service shipped end-to-end, verification evidence |
+| [docs/19-spec-phase5.md](docs/19-spec-phase5.md) | The spec that drove Phase 5 — campaigns (A/B + attribution), landing pages, the journey engine, deliverability |
+| [docs/20-phase5-build-report.md](docs/20-phase5-build-report.md) | Phase 5 completion — Marketing Automation shipped end-to-end, verification evidence |
+| [docs/21-spec-phase6.md](docs/21-spec-phase6.md) | The spec that drove Phase 6 — the metrics library with data lineage, weighted forecasting + snapshots, predictive v1, report builder, thresholds |
+| [docs/22-phase6-build-report.md](docs/22-phase6-build-report.md) | Phase 6 completion — Analytics, Forecasting & BI shipped end-to-end, verification evidence |
+| [docs/23-spec-phase7.md](docs/23-spec-phase7.md) | The spec that drove Phase 7 — deterministic identity resolution + unified profiles, behavioral tracking, the 360 view, relationship graph v1, the explained health engine, right-to-portability |
+| [docs/24-phase7-build-report.md](docs/24-phase7-build-report.md) | Phase 7 completion — CDP / Customer 360 shipped end-to-end, verification evidence |
+| [docs/25-cdp-guide.md](docs/25-cdp-guide.md) | CDP how-it-works — identity rules, the behavior catalog + mirror, graph schema + influence scoring, the health formula |
+| [docs/26-spec-phase8.md](docs/26-spec-phase8.md) | The spec that drove Phase 8 — the non-agentic AI copilot: model router, data firewall, generators, confidence, memory |
+| [docs/27-phase8-build-report.md](docs/27-phase8-build-report.md) | Phase 8 completion — AI Assistant Layer shipped end-to-end, verification evidence |
+| [docs/28-ai-guide.md](docs/28-ai-guide.md) | AI how-it-works — routing policy + residency pin, firewall + receipts, generator catalog, search syntax, memory |
 
 ---
 

@@ -1,0 +1,908 @@
+// AI Assistant Layer core (Phase 8) — ADR-020.
+//
+// The NON-AGENTIC copilot: every "AI" output here is deterministic,
+// in-process, and EXPLAINABLE — same discipline as the Phase 6 metrics
+// library and the Phase 7 health engine (derived on read, every number
+// explains itself). No external model API is called (ADR-014 mock-provider
+// discipline): the model router (ModelRoute rows) is a real, admin-editable
+// catalog that DECIDES which model would serve each feature and records the
+// decision (cost/latency/quality/residency); the data firewall redacts PII
+// from the context assembled for a model; summaries/drafts/scores/sentiment/
+// intent/semantic-search are transparent generation over live rows + the
+// event/behavior logs; every output carries a CONFIDENCE score with reasons
+// (🆕 hallucination/confidence scoring surfaced in the UI) and is persisted
+// as an AIInsight row (the audit + explainability surface).
+import { db } from "../db";
+import { emitEvent } from "./events";
+import { notFound, badRequest } from "./http";
+
+// ── Model router (🆕 blueprint) ───────────────────────────────────────────────
+
+/** Feature → required model capability. */
+export const FEATURE_CAPABILITY: Record<string, string> = {
+  "contact.summary": "summary",
+  "account.summary": "summary",
+  "deal.summary": "summary",
+  "ticket.summary": "summary",
+  "lead.summary": "summary",
+  "profile.summary": "summary",
+  "call.summary": "summary",
+  "meeting.summary": "summary",
+  "email.draft": "draft",
+  "lead.score": "score",
+  "deal.score": "score",
+  "sentiment": "sentiment",
+  "intent": "intent",
+  "search": "search",
+};
+
+export const ALL_CAPABILITIES = ["summary", "score", "search", "draft", "sentiment", "intent"];
+
+export type RouterPolicy = {
+  defaultModel: string;
+  preference: "cost" | "quality" | "latency";
+  preferredRegion: string | null;
+};
+
+export function defaultRouterPolicy(): RouterPolicy {
+  return { defaultModel: "mock-fast", preference: "cost", preferredRegion: null };
+}
+
+/** The org's routing policy (Organization.settings.ai). */
+export async function routerPolicy(orgId: string, environment: string): Promise<RouterPolicy> {
+  const org = await db().organization.findUnique({ where: { id: orgId } });
+  const settings = ((org?.settings ?? {}) as Record<string, unknown>).ai as Record<string, unknown> | undefined;
+  const policy = { ...defaultRouterPolicy(), ...(settings ?? {}) };
+  return {
+    defaultModel: typeof policy.defaultModel === "string" && policy.defaultModel ? policy.defaultModel : defaultRouterPolicy().defaultModel,
+    preference: ["cost", "quality", "latency"].includes(String(policy.preference)) ? (policy.preference as RouterPolicy["preference"]) : "cost",
+    preferredRegion: typeof policy.preferredRegion === "string" && policy.preferredRegion ? policy.preferredRegion : null,
+  };
+}
+
+/** The default model catalog (lazily seeded like SlaPolicy/pipelines). */
+const DEFAULT_MODELS = [
+  { name: "mock-fast", provider: "mock", tier: "standard", capabilities: ALL_CAPABILITIES, costPer1kIn: 0.1, costPer1kOut: 0.2, latencyMs: 120, region: "any", routingWeight: 3 },
+  { name: "mock-balanced", provider: "mock", tier: "standard", capabilities: ALL_CAPABILITIES, costPer1kIn: 0.5, costPer1kOut: 1.0, latencyMs: 320, region: "any", routingWeight: 2 },
+  { name: "mock-premium", provider: "mock", tier: "premium", capabilities: ALL_CAPABILITIES, costPer1kIn: 2.0, costPer1kOut: 4.0, latencyMs: 900, region: "any", routingWeight: 1 },
+  { name: "eu-mock", provider: "mock", tier: "standard", capabilities: ALL_CAPABILITIES, costPer1kIn: 0.8, costPer1kOut: 1.6, latencyMs: 380, region: "eu", routingWeight: 2 },
+];
+
+/** Seed the catalog when the org × env has none (idempotent, lazy). */
+export async function ensureDefaultModels(orgId: string, environment: string) {
+  const count = await db().modelRoute.count({ where: { orgId, environment } });
+  if (count > 0) return;
+  await db().modelRoute.createMany({
+    data: DEFAULT_MODELS.map((m) => ({ orgId, environment, ...m, capabilities: m.capabilities as unknown as object })),
+  });
+}
+
+export type RouteDecision = {
+  feature: string;
+  capability: string;
+  policy: RouterPolicy;
+  candidates: { name: string; tier: string; cost: number; latencyMs: number; region: string }[];
+  picked: string;
+  reason: string;
+};
+
+/**
+ * Decide which model serves a feature call. Region residency pins to the
+ * preferred region (🆕 data residency-aware routing); otherwise the org's
+ * preference ranks candidates (cost / quality / latency) with weight tie-break.
+ */
+export async function routeModel(orgId: string, environment: string, feature: string): Promise<RouteDecision> {
+  await ensureDefaultModels(orgId, environment);
+  const capability = FEATURE_CAPABILITY[feature] ?? "summary";
+  const policy = await routerPolicy(orgId, environment);
+  const models = await db().modelRoute.findMany({ where: { orgId, environment, active: true } });
+  let candidates = models.filter((m) => ((m.capabilities as string[]) ?? []).includes(capability));
+  if (!candidates.length) candidates = models;
+
+  // Residency pin: when a region is required, only models hosted there qualify.
+  let regionNote = "";
+  if (policy.preferredRegion) {
+    const regional = candidates.filter((m) => m.region === policy.preferredRegion);
+    if (regional.length) {
+      candidates = regional;
+      regionNote = `, pinned to region ${policy.preferredRegion} (residency policy)`;
+    } else {
+      regionNote = ` (no model in ${policy.preferredRegion} — fell back)`;
+    }
+  }
+
+  const ranked = [...candidates].sort((a, b) => {
+    if (policy.preference === "cost") {
+      const ca = a.costPer1kIn + a.costPer1kOut;
+      const cb = b.costPer1kIn + b.costPer1kOut;
+      if (ca !== cb) return ca - cb;
+    } else if (policy.preference === "latency") {
+      if (a.latencyMs !== b.latencyMs) return a.latencyMs - b.latencyMs;
+    } else {
+      const ta = a.tier === "premium" ? 0 : 1;
+      const tb = b.tier === "premium" ? 0 : 1;
+      if (ta !== tb) return ta - tb;
+    }
+    return b.routingWeight - a.routingWeight;
+  });
+  const picked = ranked[0] ?? null;
+  if (!picked) throw badRequest(`No active model can serve capability "${capability}"`);
+  const reason = `${policy.preference} preference picked "${picked.name}" from ${ranked.length} candidate(s)${regionNote}`;
+  return {
+    feature,
+    capability,
+    policy,
+    candidates: ranked.map((m) => ({ name: m.name, tier: m.tier, cost: m.costPer1kIn + m.costPer1kOut, latencyMs: m.latencyMs, region: m.region })),
+    picked: picked.name,
+    reason,
+  };
+}
+
+// ── Data firewall (🆕 blueprint) ──────────────────────────────────────────────
+// The redaction/policy engine that runs BEFORE any context reaches a model:
+// the assembled context string is scrubbed (emails, phones, card numbers,
+// long IDs) and the model output is generated from the SCRUBBED context, so a
+// stripped value can never echo back into a summary or draft. Every
+// generation records what was redacted on its AIInsight row.
+
+export type FirewallPolicy = {
+  enabled: boolean;
+  redactEmails: boolean;
+  redactPhones: boolean;
+  redactCards: boolean;
+  redactLongNumbers: boolean;
+  maskMode: "full" | "partial";
+  allowlist: string[]; // exact values (e.g. own support email) never redacted
+};
+
+export function defaultFirewallPolicy(): FirewallPolicy {
+  return {
+    enabled: true,
+    redactEmails: true,
+    redactPhones: true,
+    redactCards: true,
+    redactLongNumbers: true,
+    maskMode: "partial",
+    allowlist: [],
+  };
+}
+
+/** The org's firewall policy (Organization.settings.ai.firewall). */
+export async function firewallPolicy(orgId: string): Promise<FirewallPolicy> {
+  const org = await db().organization.findUnique({ where: { id: orgId } });
+  const ai = ((org?.settings ?? {}) as Record<string, unknown>).ai as Record<string, unknown> | undefined;
+  const fw = (ai?.firewall ?? {}) as Record<string, unknown>;
+  const merged = { ...defaultFirewallPolicy(), ...fw };
+  merged.maskMode = merged.maskMode === "full" ? "full" : "partial";
+  merged.allowlist = Array.isArray(merged.allowlist) ? merged.allowlist.map((s) => String(s).toLowerCase()) : [];
+  return merged as FirewallPolicy;
+}
+
+/** Redact PII from a context string. Returns the scrubbed text + what was stripped. */
+export function redactContext(text: string, policy: FirewallPolicy): { text: string; redactions: { type: string; count: number }[] } {
+  if (!policy.enabled) return { text, redactions: [] };
+  let out = text;
+  const counts: Record<string, number> = {};
+  const keep = new Set(policy.allowlist);
+  const mask = (v: string, label: string) => {
+    if (policy.maskMode === "partial" && v.length > 4) return `${v.slice(0, 2)}${"*".repeat(6)}`;
+    return `[${label}]`;
+  };
+
+  if (policy.redactEmails) {
+    out = out.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, (m) => {
+      if (keep.has(m.toLowerCase())) return m;
+      counts.email = (counts.email ?? 0) + 1;
+      return mask(m, "email");
+    });
+  }
+  if (policy.redactPhones) {
+    // Real phone shapes only: +<country> <3>-<3>-<4>, (NPA) NXX-XXXX, NPA-NXX-XXXX
+    // (a date like 2026-09-02 is 4-2-2 digits and must NOT be redacted).
+    out = out.replace(/(?:\+\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}/g, (m) => {
+      counts.phone = (counts.phone ?? 0) + 1;
+      return mask(m, "phone");
+    });
+  }
+  if (policy.redactCards) {
+    out = out.replace(/\b(?:\d[ -]*?){13,16}\b/g, (m) => {
+      // 13-16 digit groups (card-like) — but keep short years/IDs out of scope
+      if (/\d{9,}/.test(m.replace(/[^0-9]/g, ""))) {
+        counts.card = (counts.card ?? 0) + 1;
+        return mask(m, "card");
+      }
+      return m;
+    });
+  }
+  if (policy.redactLongNumbers) {
+    out = out.replace(/\b\d{9,}\b/g, (m) => {
+      counts.number = (counts.number ?? 0) + 1;
+      return mask(m, "id");
+    });
+  }
+  return { text: out, redactions: Object.entries(counts).map(([type, count]) => ({ type, count })) };
+}
+
+// ── Confidence (🆕 blueprint) ────────────────────────────────────────────────
+// Every AI output carries a 0-100 confidence + explicit reasons. Outputs below
+// the threshold are flagged: ai.confidence_flagged + an admin notification.
+
+export const CONFIDENCE_THRESHOLD = 40;
+
+export function clamp(n: number, lo = 0, hi = 100): number {
+  return Math.max(lo, Math.min(hi, Math.round(n)));
+}
+
+// ── Context assembly (scoped, then firewalled) ───────────────────────────────
+
+async function loadEntity(orgId: string, environment: string, entity: string, entityId: string): Promise<any | null> {
+  const delegate = (db() as any)[entity];
+  if (!delegate) return null;
+  const row = await delegate.findUnique({ where: { id: entityId } });
+  if (!row || row.orgId !== orgId || row.environment !== environment) return null;
+  return row;
+}
+
+export type Evidence = { kind: string; note: string; at?: Date | null };
+
+async function recentEvents(orgId: string, environment: string, entity: string, entityId: string, take = 12) {
+  return db().event.findMany({ where: { orgId, environment, entity, entityId }, orderBy: { createdAt: "desc" }, take, select: { type: true, payload: true, createdAt: true } });
+}
+
+// ── Summaries ────────────────────────────────────────────────────────────────
+
+function money(n: number | null | undefined): string {
+  const v = Number(n) || 0;
+  return v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${Math.round(v / 1_000)}k` : `$${v.toLocaleString()}`;
+}
+
+/** Build the firewalled context for one record. */
+async function contextFor(orgId: string, environment: string, entity: string, entityId: string) {
+  const row = await loadEntity(orgId, environment, entity, entityId);
+  if (!row) return null;
+  const pieces: string[] = [];
+  let title = "";
+  let completeness = 0;
+  const fill = (v: unknown) => (v !== null && v !== undefined && String(v).trim() !== "" ? 1 : 0);
+
+  if (entity === "contact") {
+    title = `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() || row.email || "contact";
+    pieces.push(`contact ${title}, email ${row.email ?? "none"}, phone ${row.phone ?? "none"}, title ${row.title ?? "none"}, status ${row.status}, source ${row.source ?? "none"}`);
+    completeness = fill(row.email) + fill(row.phone) + fill(row.title);
+  } else if (entity === "account") {
+    title = row.name;
+    pieces.push(`account ${row.name}, industry ${row.industry ?? "none"}, tier ${row.tier ?? "none"}, employees ${row.employees ?? "n/a"}, website ${row.website ?? "none"}`);
+    completeness = fill(row.industry) + fill(row.employees) + fill(row.website);
+  } else if (entity === "opportunity") {
+    title = row.name;
+    const close = row.closeDate ? new Date(row.closeDate).toISOString().slice(0, 10) : "none";
+    pieces.push(`deal ${row.name}, stage ${row.stage}, amount ${money(row.amount)}, probability ${row.probability}%, close date ${close}, competitors ${row.competitors ?? "none"}, lost reason ${row.lostReason ?? "none"}, win reason ${row.winReason ?? "none"}`);
+    completeness = fill(row.amount) + fill(row.probability) + fill(row.stage);
+  } else if (entity === "lead") {
+    title = `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() || row.email || "lead";
+    pieces.push(`lead ${title}, email ${row.email ?? "none"}, company ${row.company ?? "none"}, source ${row.source ?? "none"}, status ${row.status}, score ${row.score}`);
+    completeness = fill(row.email) + fill(row.company) + fill(row.phone);
+  } else if (entity === "ticket") {
+    title = row.subject;
+    pieces.push(`ticket ${row.reference} "${row.subject}", status ${row.status}, priority ${row.priority}, channel ${row.channel}, source ${row.source}, sla due ${row.slaDueAt ? new Date(row.slaDueAt).toISOString().slice(0, 10) : "none"}, breached ${row.breachedAt ? "yes" : "no"}, escalated ${row.escalated ? "yes" : "no"}, legal hold ${row.legalHold ? "yes" : "no"}`);
+    completeness = fill(row.subject) + fill(row.description) + fill(row.priority);
+  }
+
+  const events = await recentEvents(orgId, environment, entity, entityId);
+  pieces.push(`recent activity: ${events.length ? events.map((e) => `${e.type} @ ${new Date(e.createdAt).toISOString().slice(0, 10)}`).join(", ") : "none"}`);
+  return { row, title, context: pieces.join(". "), events, completeness, entity, entityId };
+}
+
+/**
+ * Generate a record summary (contact/account/deal/lead/ticket) — deterministic
+ * synthesis of the firewalled context + recent events. Returns the full
+ * insight payload; the ROUTE persists it via saveInsight.
+ */
+export async function summarizeRecord(orgId: string, environment: string, entity: string, entityId: string) {
+  const ctx = await contextFor(orgId, environment, entity, entityId);
+  if (!ctx) throw notFound(`${entity} not found`);
+  const policy = await firewallPolicy(orgId);
+  const redacted = redactContext(ctx.context, policy);
+
+  const events = ctx.events;
+  const evidence: Evidence[] = events.slice(0, 8).map((e) => ({ kind: "event", note: `${e.type} (${new Date(e.createdAt).toISOString().slice(0, 10)})`, at: e.createdAt }));
+  const recent = events.filter((e) => Date.now() - new Date(e.createdAt).getTime() < 14 * 86_400_000).length;
+
+  let headline = "";
+  const r = ctx.row;
+  if (entity === "contact") {
+    headline = `${ctx.title} is a ${r.status} contact${r.accountId ? " with an account on file" : ""}${r.email ? "" : " without an email on file"}.`;
+  } else if (entity === "account") {
+    headline = `${r.name} is a ${r.tier ?? "n/a"} ${r.industry ?? ""} account${r.employees ? ` with ~${r.employees.toLocaleString()} employees` : ""}.`;
+  } else if (entity === "opportunity") {
+    headline = `${r.name} is ${money(r.amount)} at ${r.probability}% (${r.stage} stage)${r.closeDate ? `, targeting close by ${new Date(r.closeDate).toISOString().slice(0, 10)}` : ""}.`;
+  } else if (entity === "lead") {
+    headline = `${ctx.title} is a ${r.score} score lead from ${r.source ?? "unknown source"}, currently ${r.status}.`;
+  } else if (entity === "ticket") {
+    headline = `${r.reference} "${r.subject}" is ${r.status} (${r.priority} priority)${r.breachedAt ? ", SLA BREACHED" : r.slaDueAt ? ", SLA on the clock" : ""}${r.escalated ? ", escalated" : ""}.`;
+  }
+  const activityNote = events.length
+    ? ` ${recent} of ${events.length} recorded event(s) in the last 14 days.`
+    : " No activity is recorded yet — the record is quiet.";
+  const summary = `${headline}${activityNote}`;
+
+  // Confidence: completeness (0-3) × 20 + recent-activity signal + event count.
+  const confidence = clamp(30 + ctx.completeness * 18 + (recent ? 14 : 0) + Math.min(12, events.length * 2));
+  return {
+    kind: "summary" as const,
+    feature: `${entity}.summary`,
+    entity,
+    entityId,
+    title: ctx.title,
+    content: summary,
+    confidence,
+    payload: { headline, recentEvents: recent, totalEvents: events.length, completeness: ctx.completeness, evidence },
+    redacted: redacted.redactions,
+  };
+}
+
+/** Call summarization — from transcript + notes (the Phase 2 mock transcripts). */
+export async function summarizeCall(orgId: string, environment: string, callId: string) {
+  const call = await db().call.findUnique({ where: { id: callId } });
+  if (!call || call.orgId !== orgId || call.environment !== environment) throw notFound("Call not found");
+  const policy = await firewallPolicy(orgId);
+  const source = `${call.transcript ?? ""} ${call.notes ?? ""}`.trim();
+  const redacted = redactContext(source, policy);
+
+  const lines = redacted.text.split("\n").filter((l) => l.trim().length > 0);
+  let bulletCount = 0;
+  const bullets: string[] = [];
+  for (const line of lines) {
+    const t = line.replace(/^(You|Agent|Rep|System|Caller|[A-Z][a-z]+):\s*/, "").trim();
+    if (t.length > 25) {
+      bullets.push(t.length > 140 ? `${t.slice(0, 140)}…` : t);
+      bulletCount++;
+    }
+  }
+  const hasAction = /(will|send|share|propose|schedule|follow)/i.test(source);
+  const content = `Call (${call.direction}, ${Math.round((call.durationSec ?? 0) / 60)} min, ${call.status}) with notes${call.notes ? " + transcript" : ""}: ${bullets.length ? bullets.join(" | ") : "no transcript content recorded"}.${hasAction ? " Contains next-step language (send/share/schedule/propose)." : ""}`;
+  const confidence = clamp(35 + bulletCount * 12 + (hasAction ? 12 : 0) + (call.transcript ? 10 : 0));
+  return {
+    kind: "summary" as const,
+    feature: "call.summary",
+    entity: "call",
+    entityId: callId,
+    title: `Call · ${call.direction} · ${Math.round((call.durationSec ?? 0) / 60)} min`,
+    content,
+    confidence,
+    payload: { transcriptLines: lines.length, keyPoints: bullets.slice(0, 6), nextSteps: hasAction, durationSec: call.durationSec, evidence: [] as Evidence[] },
+    redacted: redacted.redactions,
+  };
+}
+
+/** Meeting summarization — from notes + attendees. */
+export async function summarizeMeeting(orgId: string, environment: string, meetingId: string) {
+  const meeting = await db().meeting.findUnique({ where: { id: meetingId } });
+  if (!meeting || meeting.orgId !== orgId || meeting.environment !== environment) throw notFound("Meeting not found");
+  const policy = await firewallPolicy(orgId);
+  const notes = meeting.notes ?? "";
+  const redacted = redactContext(notes, policy);
+  const content = `Meeting "${meeting.title}" (${meeting.status}${meeting.attendeeName ? `, attendee ${meeting.attendeeName}` : ""}, ${meeting.location ?? "virtual"}): ${
+    redacted.text.trim() ? redacted.text.trim().slice(0, 280) : "no notes were recorded for this meeting"
+  }.`;
+  const confidence = clamp(40 + (meeting.notes ? 30 : 0) + (meeting.status === "completed" ? 15 : 5));
+  return {
+    kind: "summary" as const,
+    feature: "meeting.summary",
+    entity: "meeting",
+    entityId: meetingId,
+    title: meeting.title,
+    content,
+    confidence,
+    payload: { status: meeting.status, attendeeName: meeting.attendeeName ?? null, hasNotes: Boolean(meeting.notes), evidence: [] as Evidence[] },
+    redacted: redacted.redactions,
+  };
+}
+
+/** The Customer 360 summary card (🆕 blueprint: AI-generated 360 summary). */
+export async function summarizeProfile(orgId: string, environment: string, profileId: string) {
+  const profile = await db().identityProfile.findUnique({ where: { id: profileId } });
+  if (!profile || profile.orgId !== orgId || profile.environment !== environment) throw notFound("Profile not found");
+  const [behaviors, tickets, messages] = await Promise.all([
+    db().behaviorEvent.findMany({ where: { orgId, environment, profileId }, orderBy: { occurredAt: "desc" }, take: 20, select: { type: true, value: true, occurredAt: true } }),
+    db().ticket.findMany({ where: { orgId, environment, contactId: { in: (profile.memberIds as string[]).filter((m) => m.startsWith("contact:")).map((m) => m.split(":")[1]) } }, take: 10, select: { status: true, priority: true, breachedAt: true } }),
+    db().message.count({ where: { orgId, environment, contactId: { in: (profile.memberIds as string[]).filter((m) => m.startsWith("contact:")).map((m) => m.split(":")[1]) } } }),
+  ]);
+  const purchases = behaviors.filter((b) => b.type === "purchase");
+  const openTickets = tickets.filter((t) => t.status !== "resolved" && t.status !== "closed");
+  const parts: string[] = [];
+  parts.push(`${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || profile.email);
+  parts.push(`${behaviors.length} touchpoint(s) tracked (${behaviors.slice(0, 4).map((b) => b.type).join(", ")})`);
+  if (purchases.length) parts.push(`${purchases.length} purchase(s) totaling ${money(purchases.reduce((s, b) => s + (Number(b.value) || 0), 0))}`);
+  if (openTickets.length) parts.push(`${openTickets.length} open support ticket(s)${openTickets.some((t) => t.breachedAt) ? " (incl. a breach)" : ""}`);
+  else parts.push("no open support tickets");
+  parts.push(`${messages} email(s) exchanged`);
+  const content = parts.join(". ") + ".";
+  const confidence = clamp(40 + Math.min(25, behaviors.length * 2) + (purchases.length ? 15 : 0) + (messages ? 8 : 0));
+  return {
+    kind: "summary" as const,
+    feature: "profile.summary",
+    entity: "identityProfile",
+    entityId: profileId,
+    title: `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || profile.email,
+    content,
+    confidence,
+    payload: { behaviors: behaviors.length, purchases: purchases.length, openTickets: openTickets.length, messages, evidence: [] as Evidence[] },
+    redacted: [] as { type: string; count: number }[],
+  };
+}
+
+// ── Email drafting ───────────────────────────────────────────────────────────
+
+const TONES: Record<string, { opener: string; cta: string }> = {
+  follow_up: { opener: "Quick follow-up on our last conversation —", cta: "Would a 15-minute call this week work to move things forward?" },
+  proposal: { opener: "As promised, here's the proposal for your review —", cta: "Happy to walk through it whenever suits — just reply with a time." },
+  check_in: { opener: "Checking in to see how things are going on your side —", cta: "No rush at all — but I'd love to hear your thoughts when you have a moment." },
+  thank_you: { opener: "Thank you for your time and trust —", cta: "Looking forward to the next step whenever you're ready." },
+};
+
+/** Draft a tone-controlled email to a contact (optionally about a deal). */
+export async function draftEmail(orgId: string, environment: string, input: { contactId: string; dealId?: string; tone?: string }, actorName: string) {
+  const contact = await db().contact.findUnique({ where: { id: input.contactId } });
+  if (!contact || contact.orgId !== orgId || contact.environment !== environment) throw notFound("Contact not found");
+  const tone = TONES[input.tone ?? "follow_up"] ?? TONES.follow_up;
+  const policy = await firewallPolicy(orgId);
+  const deal = input.dealId
+    ? await loadEntity(orgId, environment, "opportunity", input.dealId).catch(() => null)
+    : null;
+  const context = `contact ${contact.firstName} ${contact.lastName}, email ${contact.email ?? "none"}, phone ${contact.phone ?? "none"}, account ${contact.accountId ?? "none"}${deal ? `, deal ${deal.name} ${money(deal.amount)} at ${deal.probability}%` : ""}`;
+  const redacted = redactContext(context, policy);
+
+  const subject = deal ? `Re: ${deal.name}` : `Following up — ${contact.firstName}`;
+  const body = `Hi ${contact.firstName},\n\n${tone.opener}${deal ? ` for ${redacted.text.includes(deal.name) ? deal.name : "your account"}` : ""}\n\n${tone.cta}\n\nBest,\n${actorName}`;
+  const confidence = clamp(45 + (contact.email ? 15 : 0) + (deal ? 15 : 0) + (contact.accountId ? 8 : 0));
+  return {
+    kind: "summary" as const, // drafts surface through ai.summary_generated (blueprint events)
+    feature: "email.draft",
+    entity: "contact",
+    entityId: contact.id,
+    title: `Draft (${input.tone ?? "follow_up"}) → ${contact.firstName} ${contact.lastName}`.trim(),
+    content: `${subject}\n\n${body}`,
+    confidence,
+    payload: { subject, body, tone: input.tone ?? "follow_up", recipientEmail: contact.email, redactedFields: redacted.text, evidence: [] as Evidence[] },
+    redacted: redacted.redactions,
+  };
+}
+
+// ── AI scoring (explained, with confidence) ──────────────────────────────────
+
+export type ScoreComponent = { key: string; label: string; weight: number; value: number; inputs: Record<string, unknown> };
+
+/** AI lead score — transparent weighted blend of the base score + real signals. */
+export async function scoreLead(orgId: string, environment: string, leadId: string) {
+  const lead = await db().lead.findUnique({ where: { id: leadId } });
+  if (!lead || lead.orgId !== orgId || lead.environment !== environment) throw notFound("Lead not found");
+
+  const sourceQuality: Record<string, number> = { Referral: 90, Website: 78, "Landing page": 74, Event: 68, "Cold outreach": 45 };
+  const sourceV = sourceQuality[lead.source ?? ""] ?? 55;
+
+  const ageDays = Math.max(0, (Date.now() - new Date(lead.createdAt).getTime()) / 86_400_000);
+  const recency = ageDays <= 3 ? 100 : ageDays <= 14 ? 70 : ageDays <= 45 ? 40 : 15;
+
+  let engagement = 0;
+  if (lead.email) {
+    const profile = await db().identityProfile.findUnique({ where: { orgId_environment_email: { orgId, environment, email: lead.email.toLowerCase().trim() } }, select: { id: true } });
+    if (profile) {
+      const n = await db().behaviorEvent.count({ where: { orgId, environment, profileId: profile.id, occurredAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } });
+      engagement = Math.min(100, n * 12);
+    }
+  }
+  const completeness = ((lead.email ? 1 : 0) + (lead.phone ? 1 : 0) + (lead.company ? 1 : 0)) / 3 * 100;
+
+  const components: ScoreComponent[] = [
+    { key: "base", label: "Current lead score", weight: 0.5, value: clamp(lead.score), inputs: { score: lead.score } },
+    { key: "source", label: "Source quality", weight: 0.15, value: sourceV, inputs: { source: lead.source ?? "unknown" } },
+    { key: "recency", label: "Recency", weight: 0.15, value: recency, inputs: { ageDays: Math.round(ageDays * 10) / 10 } },
+    { key: "engagement", label: "Behavioral engagement (30d)", weight: 0.1, value: engagement, inputs: { behaviors30d: Math.round(engagement / 12) } },
+    { key: "completeness", label: "Data completeness", weight: 0.1, value: completeness, inputs: { email: Boolean(lead.email), phone: Boolean(lead.phone), company: Boolean(lead.company) } },
+  ];
+  const score = clamp(components.reduce((s, c) => s + c.value * c.weight, 0));
+  const filled = components.filter((c) => {
+    const v = Object.values(c.inputs)[0];
+    return v !== 0 && v !== false && v !== undefined && v !== null && v !== "unknown";
+  }).length;
+  const confidence = clamp(38 + filled * 10 + (engagement > 0 ? 10 : 0));
+  return {
+    kind: "score" as const,
+    feature: "lead.score",
+    entity: "lead",
+    entityId: leadId,
+    title: `${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() || lead.email || "Lead",
+    content: `AI lead score ${score}/100 (${confidence}% confidence). ${score >= 75 ? "High-priority — qualify this week." : score >= 55 ? "Warm lead — worth a follow-up." : "Cold — nurture or recycle."}`,
+    confidence,
+    payload: { score, components, explanation: components.map((c) => `${c.label}: ${c.value}/100 × ${Math.round(c.weight * 100)}%`), evidence: [] as Evidence[] },
+    redacted: [] as { type: string; count: number }[],
+  };
+}
+
+/** AI deal score — stage probability + size + momentum + buyer engagement. */
+export async function scoreDeal(orgId: string, environment: string, dealId: string) {
+  const deal = await db().opportunity.findUnique({ where: { id: dealId } });
+  if (!deal || deal.orgId !== orgId || deal.environment !== environment) throw notFound("Deal not found");
+
+  const stageV = clamp(deal.probability);
+  const orgDeals = await db().opportunity.findMany({ where: { orgId, environment }, select: { amount: true } });
+  const avgAmount = orgDeals.length ? orgDeals.reduce((s, d) => s + (Number(d.amount) || 0), 0) / orgDeals.length : 1;
+  const sizeV = clamp(((Number(deal.amount) || 0) / Math.max(avgAmount, 1)) * 60);
+
+  const events = await db().event.count({ where: { orgId, environment, entity: "opportunity", entityId: dealId, createdAt: { gte: new Date(Date.now() - 14 * 86_400_000) } } });
+  const momentum = Math.min(100, events * 22);
+
+  let engagement = 0;
+  const touches = await db().message.count({ where: { orgId, environment, opportunityId: dealId, createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } });
+  const calls = await db().call.count({ where: { orgId, environment, opportunityId: dealId, startedAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } });
+  const meetings = await db().meeting.count({ where: { orgId, environment, opportunityId: dealId, startsAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } });
+  engagement = Math.min(100, (touches + calls * 1.5 + meetings * 2) * 12);
+
+  const components: ScoreComponent[] = [
+    { key: "stage", label: "Stage probability", weight: 0.35, value: stageV, inputs: { stage: deal.stage, probability: deal.probability } },
+    { key: "size", label: "Deal size vs org average", weight: 0.2, value: sizeV, inputs: { amount: Number(deal.amount) || 0, avgAmount: Math.round(avgAmount) } },
+    { key: "momentum", label: "Momentum (events, 14d)", weight: 0.25, value: momentum, inputs: { events14d: events } },
+    { key: "engagement", label: "Buyer engagement (30d)", weight: 0.2, value: engagement, inputs: { emails30d: touches, calls30d: calls, meetings30d: meetings } },
+  ];
+  const score = clamp(components.reduce((s, c) => s + c.value * c.weight, 0));
+  const confidence = clamp(38 + (events > 0 ? 18 : 0) + (engagement > 0 ? 18 : 0) + (deal.amount > 0 ? 8 : 0));
+  return {
+    kind: "score" as const,
+    feature: "deal.score",
+    entity: "opportunity",
+    entityId: dealId,
+    title: deal.name,
+    content: `AI deal score ${score}/100 (${confidence}% confidence). ${score >= 75 ? "Strong — push to close." : score >= 55 ? "Healthy — keep momentum up." : "Weak — re-qualify or consider churn risk."}`,
+    confidence,
+    payload: { score, components, explanation: components.map((c) => `${c.label}: ${c.value}/100 × ${Math.round(c.weight * 100)}%`), evidence: [] as Evidence[] },
+    redacted: [] as { type: string; count: number }[],
+  };
+}
+
+// ── Sentiment + intent ───────────────────────────────────────────────────────
+
+const POSITIVE_WORDS = ["great", "good", "love", "like", "excellent", "amazing", "happy", "pleased", "thanks", "thank", "awesome", "perfect", "helpful", "fast", "easy", "best", "satisfied", "impressed", "recommend", "solved", "resolved", "appreciate", "works"];
+const NEGATIVE_WORDS = ["bad", "terrible", "awful", "hate", "dislike", "poor", "slow", "worst", "frustrat", "annoy", "angry", "upset", "broken", "failing", "failed", "issue", "problem", "bug", "error", "wrong", "unhappy", "disappointed", "refund", "complain", "useless", "worried", "delayed"];
+
+/** Lexicon sentiment over any text. Deterministic + evidence-backed. */
+export async function analyzeSentiment(orgId: string, environment: string, text: string) {
+  const clean = (text ?? "").toLowerCase();
+  const tokens = clean.split(/[^a-z']+/).filter(Boolean);
+  const pos = tokens.filter((t) => POSITIVE_WORDS.includes(t) || POSITIVE_WORDS.some((p) => t.startsWith(p)));
+  const neg = tokens.filter((t) => NEGATIVE_WORDS.includes(t) || NEGATIVE_WORDS.some((p) => t.startsWith(p)));
+  const hits = pos.length + neg.length;
+  const score = hits ? (pos.length - neg.length) / hits : 0; // -1..1
+  const label = score > 0.2 ? "positive" : score < -0.2 ? "negative" : "neutral";
+  const confidence = tokens.length < 5 ? 25 : clamp(45 + Math.min(45, hits * 6));
+  const content = `Sentiment: ${label} (${score >= 0 ? "+" : ""}${(score * 100).toFixed(0)}). ${pos.length} positive / ${neg.length} negative signal(s).`;
+  return {
+    kind: "sentiment" as const,
+    feature: "sentiment",
+    entity: "text",
+    entityId: null as string | null,
+    title: "Sentiment analysis",
+    content,
+    confidence,
+    payload: { label, score: Math.round(score * 100), positiveHits: pos.slice(0, 10), negativeHits: neg.slice(0, 10), tokenCount: tokens.length, evidence: [] as Evidence[] },
+    redacted: [] as { type: string; count: number }[],
+  };
+}
+
+/** Intent detection from a profile's behavior stream (last 30 days). */
+export async function detectIntent(orgId: string, environment: string, profileId: string) {
+  const profile = await db().identityProfile.findUnique({ where: { id: profileId } });
+  if (!profile || profile.orgId !== orgId || profile.environment !== environment) throw notFound("Profile not found");
+  const behaviors = await db().behaviorEvent.findMany({ where: { orgId, environment, profileId, occurredAt: { gte: new Date(Date.now() - 30 * 86_400_000) } }, select: { type: true, value: true } });
+  const count = (t: string) => behaviors.filter((b) => b.type === t).length;
+  const signals: { label: string; confidence: number; evidence: string }[] = [];
+  const push = (label: string, confidence: number, evidence: string) => signals.push({ label, confidence, evidence });
+  if (count("purchase") > 0) push("buying (purchased)", clamp(90), `${count("purchase")} purchase(s)`);
+  if (count("product_use") >= 3) push("active user", clamp(55 + count("product_use") * 8), `${count("product_use")} product sessions`);
+  if (count("email_clicked") > 0 || count("page_view") >= 3) push("considering (engaged with marketing)", clamp(48 + count("email_clicked") * 14), `${count("email_clicked")} clicks, ${count("page_view")} page views`);
+  if (count("support_ticket") > 0) push("needs support", clamp(60), `${count("support_ticket")} support ticket(s)`);
+  if (count("ad_click") > 0) push("awareness stage", clamp(40), `${count("ad_click")} ad click(s)`);
+  if (!signals.length) push("inactive (no signals, 30d)", 20, "no behaviors in the window");
+  signals.sort((a, b) => b.confidence - a.confidence);
+  const top = signals[0];
+  const content = `Intent: ${top.label} (${top.confidence}% confidence). ${signals.slice(0, 3).map((s) => `${s.label} (${s.confidence}%)`).join(", ")}.`;
+  return {
+    kind: "intent" as const,
+    feature: "intent",
+    entity: "identityProfile",
+    entityId: profileId,
+    title: `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || profile.email,
+    content,
+    confidence: top.confidence,
+    payload: { signals, evidence: [] as Evidence[] },
+    redacted: [] as { type: string; count: number }[],
+  };
+}
+
+// ── Semantic search (natural-language query over the CRM) ───────────────────
+
+const STOPWORDS = new Set(["a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with", "by", "at", "from", "my", "show", "me", "list", "all", "any", "that", "this", "is", "are", "was", "were", "what", "which", "who", "how", "does", "do", "please", "find", "search", "looking", "need", "want", "has", "have", "had", "us", "our", "we", "i", "it", "they", "them", "their", "get", "give", "into", "about", "than"]);
+
+const SYNONYM_GROUPS: [string, string[]][] = [
+  ["deal", ["deal", "deals", "opportunity", "opportunities", "opp", "opps", "pipeline", "proposal"]],
+  ["won", ["won", "win", "closed", "signed", "successful", "closing"]],
+  ["lost", ["lost", "losing", "failed", "churned"]],
+  ["open", ["open", "active", "inprogress", "unresolved", "live"]],
+  ["high", ["high", "big", "large", "major", "important", "top", "priority", "urgent", "critical", "asap"]],
+  ["low", ["low", "small", "minor", "little"]],
+  ["over", ["over", "above", "greater", "more", "exceeds", "exceeding", "atleast"]],
+  ["under", ["under", "below", "less", "up", "max"]],
+  ["contact", ["contact", "contacts", "person", "people", "someone", "customer"]],
+  ["account", ["account", "accounts", "company", "companies", "organization", "org", "vendor", "customer"]],
+  ["lead", ["lead", "leads", "prospect", "prospects", "potential"]],
+  ["ticket", ["ticket", "tickets", "support", "case", "cases", "issue", "issues", "request", "requests"]],
+  ["revenue", ["revenue", "money", "value", "worth", "amount", "amounts", "size", "sized"]],
+  ["recent", ["recent", "latest", "new", "newest", "last", "fresh"]],
+];
+
+function tokenGroups(query: string): string[] {
+  const tokens = query.toLowerCase().split(/[^a-z0-9$>.]+/).filter((t) => t && !STOPWORDS.has(t));
+  const groups = new Set<string>();
+  for (const t of tokens) {
+    const g = SYNONYM_GROUPS.find(([, words]) => words.includes(t) || words.some((w) => t.startsWith(w)));
+    groups.add(g ? g[0] : t);
+  }
+  return [...groups];
+}
+
+function parsePredicate(query: string): { field: "amount" | "probability"; op: "gte" | "lte"; value: number } | null {
+  // Requires a real comparison word + optional $ + a number: "over 50k", "less than $12m"
+  const m = query.match(/(over|above|greater than|more than|at least|exceeds|under|below|less than|less)\s*\$?(\d[\d,.kKmM]*)/i);
+  if (!m) return null;
+  const raw = m[2].replace(/[$,]/g, "");
+  const mult = raw.toLowerCase().endsWith("k") ? 1_000 : raw.toLowerCase().endsWith("m") ? 1_000_000 : 1;
+  const value = Number(raw.replace(/[km]$/i, "")) * mult;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const gt = /(over|above|greater|more than|at least|exceeds)/i.test(m[1]);
+  return { field: "amount", op: gt ? "gte" : "lte", value };
+}
+
+type SearchHit = {
+  type: string;
+  id: string;
+  title: string;
+  subtitle: string;
+  score: number;
+  confidence: number;
+  evidence: { matchedTerms: string[]; predicate?: string; reason: string };
+};
+
+/**
+ * Semantic search: token-group matching (synonyms) + numeric/status predicates
+ * + field-weighted ranking, all explainable. Returns ranked hits with per-hit
+ * evidence + confidence (and the parsed query for the UI).
+ */
+export async function semanticSearch(orgId: string, environment: string, query: string): Promise<{ query: string; groups: string[]; predicate: { field: string; op: string; value: number } | null; types: string[]; items: SearchHit[] }> {
+  const q = query.trim();
+  const groups = tokenGroups(q);
+  const predicate = parsePredicate(q);
+  const wants = (g: string) => groups.includes(g);
+  // Entity words steer the search; a plain query (names, companies, amounts)
+  // searches every type.
+  const types: string[] = [];
+  const mentionsEntity = ["contact", "account", "lead", "ticket", "deal"].some((t) => wants(t));
+  if (!mentionsEntity) {
+    types.push("contact", "account", "lead", "ticket", "opportunity");
+  } else {
+    if (wants("deal")) types.push("opportunity");
+    if (wants("contact")) types.push("contact");
+    if (wants("account")) types.push("account");
+    if (wants("lead")) types.push("lead");
+    if (wants("ticket")) types.push("ticket");
+  }
+
+  const hits: SearchHit[] = [];
+  const termPattern = new RegExp(`(${groups.filter((g) => g.length > 2).join("|")})`, "i");
+
+  if (types.includes("contact")) {
+    const rows = await db().contact.findMany({ where: { orgId, environment }, take: 500, select: { id: true, firstName: true, lastName: true, email: true, title: true, status: true } });
+    for (const r of rows) {
+      const text = `${r.firstName} ${r.lastName} ${r.email ?? ""} ${r.title ?? ""} ${r.status}`.toLowerCase();
+      const matched = groups.filter((g) => text.includes(g));
+      if (!matched.length && !termPattern.test(text)) continue;
+      const score = matched.length * 3 + (r.title && groups.some((g) => r.title!.toLowerCase().includes(g)) ? 2 : 0) + (r.email && groups.some((g) => r.email!.toLowerCase().includes(g)) ? 2 : 0);
+      hits.push({
+        type: "contact", id: r.id, title: `${r.firstName} ${r.lastName}`.trim(), subtitle: `${r.email ?? ""} · ${r.title ?? ""}`,
+        score, confidence: clamp(30 + score * 8),
+        evidence: { matchedTerms: matched, reason: `matched ${matched.length} term(s)` },
+      });
+    }
+  }
+  if (types.includes("account")) {
+    const rows = await db().account.findMany({ where: { orgId, environment }, take: 500, select: { id: true, name: true, industry: true, tier: true, website: true } });
+    for (const r of rows) {
+      const text = `${r.name} ${r.industry ?? ""} ${r.tier ?? ""} ${r.website ?? ""}`.toLowerCase();
+      const matched = groups.filter((g) => text.includes(g));
+      if (!matched.length && !termPattern.test(text)) continue;
+      const score = matched.length * 3 + (r.industry && groups.some((g) => r.industry!.toLowerCase().includes(g)) ? 2 : 0);
+      hits.push({
+        type: "account", id: r.id, title: r.name, subtitle: `${r.industry ?? ""} · ${r.tier ?? ""}`,
+        score, confidence: clamp(30 + score * 8),
+        evidence: { matchedTerms: matched, reason: `matched ${matched.length} term(s)` },
+      });
+    }
+  }
+  if (types.includes("lead")) {
+    const rows = await db().lead.findMany({ where: { orgId, environment }, take: 500, select: { id: true, firstName: true, lastName: true, email: true, company: true, status: true, score: true } });
+    for (const r of rows) {
+      const text = `${r.firstName} ${r.lastName} ${r.email ?? ""} ${r.company ?? ""} ${r.status}`.toLowerCase();
+      const matched = groups.filter((g) => text.includes(g));
+      if (!matched.length && !termPattern.test(text)) continue;
+      const score = matched.length * 3 + (r.company && groups.some((g) => r.company!.toLowerCase().includes(g)) ? 2 : 0);
+      hits.push({
+        type: "lead", id: r.id, title: `${r.firstName} ${r.lastName}`.trim(), subtitle: `${r.company ?? ""} · score ${r.score} · ${r.status}`,
+        score, confidence: clamp(30 + score * 8),
+        evidence: { matchedTerms: matched, reason: `matched ${matched.length} term(s)` },
+      });
+    }
+  }
+  if (types.includes("ticket")) {
+    const rows = await db().ticket.findMany({ where: { orgId, environment }, take: 500, select: { id: true, reference: true, subject: true, status: true, priority: true } });
+    for (const r of rows) {
+      const text = `${r.reference} ${r.subject} ${r.status} ${r.priority}`.toLowerCase();
+      const matched = groups.filter((g) => text.includes(g));
+      if (!matched.length && !termPattern.test(text)) continue;
+      const score = matched.length * 3 + (r.priority && groups.some((g) => r.priority!.toLowerCase().includes(g)) ? 2 : 0);
+      hits.push({
+        type: "ticket", id: r.id, title: `${r.reference} — ${r.subject}`, subtitle: `${r.status} · ${r.priority}`,
+        score, confidence: clamp(30 + score * 8),
+        evidence: { matchedTerms: matched, reason: `matched ${matched.length} term(s)` },
+      });
+    }
+  }
+  if (types.includes("opportunity")) {
+    const rows = await db().opportunity.findMany({ where: { orgId, environment }, take: 500, select: { id: true, name: true, stage: true, amount: true, probability: true } });
+    for (const r of rows) {
+      const stageGroup = r.stage === "won" ? "won" : r.stage === "lost" ? "lost" : "open";
+      const text = `${r.name} ${r.stage} ${money(r.amount)}`.toLowerCase();
+      const matched = groups.filter((g) => text.includes(g) || (g === "won" && stageGroup === "won") || (g === "lost" && stageGroup === "lost") || (g === "open" && stageGroup === "open"));
+      let score = matched.length * 3;
+      if (r.amount > 0 && groups.some((g) => g === "revenue" || g === "over" || g === "under")) score += 2;
+      if (groups.includes("won") && stageGroup === "won") score += 3;
+      if (groups.includes("lost") && stageGroup === "lost") score += 3;
+      let predicateNote: string | undefined;
+      if (predicate) {
+        const amount = Number(r.amount) || 0;
+        const ok = predicate.op === "gte" ? amount >= predicate.value : amount <= predicate.value;
+        score += ok ? 25 : -20;
+        predicateNote = `amount ${predicate.op === "gte" ? "≥" : "≤"} ${money(predicate.value)} ${ok ? "✓" : "✗"}`;
+      }
+      if (!matched.length && !predicateNote) continue;
+      hits.push({
+        type: "opportunity", id: r.id, title: r.name, subtitle: `${money(r.amount)} · ${r.stage} · ${r.probability}%`,
+        score, confidence: clamp(30 + score * 2.2),
+        evidence: { matchedTerms: matched, predicate: predicateNote, reason: `${matched.length ? `matched ${matched.length} term(s)` : "predicate"}${predicateNote ? " · " + predicateNote : ""}` },
+      });
+    }
+  }
+
+  hits.sort((a, b) => b.score - a.score);
+  return {
+    query: q,
+    groups,
+    predicate: predicate ? { field: predicate.field, op: predicate.op, value: predicate.value } : null,
+    types,
+    items: hits.slice(0, 12),
+  };
+}
+
+// ── Insight persistence + events + memory ────────────────────────────────────
+
+export type InsightInput = {
+  kind: string;
+  feature: string;
+  entity?: string;
+  entityId?: string | null;
+  title?: string | null;
+  content?: string | null;
+  confidence: number;
+  modelId?: string | null;
+  latencyMs?: number;
+  payload?: Record<string, unknown>;
+  redacted?: { type: string; count: number }[];
+};
+
+/**
+ * Persist one AIInsight row and emit the blueprint's events:
+ * ai.summary_generated (summary/draft) · ai.score_computed (score) ·
+ * ai.confidence_flagged (confidence below the threshold → also notifies admins).
+ */
+export async function saveInsight(orgId: string, environment: string, actorId: string, input: InsightInput): Promise<any> {
+  const lowConfidence = input.confidence < CONFIDENCE_THRESHOLD;
+  const row = await db().aiInsight.create({
+    data: {
+      orgId,
+      environment,
+      kind: input.kind,
+      feature: input.feature,
+      entity: input.entity ?? null,
+      entityId: input.entityId ?? null,
+      title: input.title ?? null,
+      content: input.content ?? null,
+      confidence: input.confidence,
+      lowConfidence,
+      modelId: input.modelId ?? null,
+      latencyMs: input.latencyMs ?? 0,
+      payload: (input.payload ?? {}) as object,
+      redacted: (input.redacted ?? []) as object,
+      createdBy: actorId,
+    },
+  });
+
+  if (input.kind === "summary" || input.kind === "draft") {
+    await emitEvent({ orgId, environment, type: "ai.summary_generated", entity: input.entity ?? "ai", entityId: row.id, actorId, payload: { feature: input.feature, confidence: input.confidence, modelId: input.modelId ?? null } });
+  } else if (input.kind === "score") {
+    await emitEvent({ orgId, environment, type: "ai.score_computed", entity: input.entity ?? "ai", entityId: row.id, actorId, payload: { feature: input.feature, confidence: input.confidence, modelId: input.modelId ?? null } });
+  }
+  if (lowConfidence) {
+    await emitEvent({ orgId, environment, type: "ai.confidence_flagged", entity: input.entity ?? "ai", entityId: row.id, actorId, payload: { feature: input.feature, confidence: input.confidence, threshold: CONFIDENCE_THRESHOLD } });
+    const admins = await db().user.findMany({ where: { orgId, role: "admin" }, select: { id: true } });
+    for (const a of admins) {
+      await db().notification.create({
+        data: {
+          orgId, environment, userId: a.id, kind: "ai", title: "Low AI confidence ⚠️",
+          body: `"${input.title ?? input.feature}" scored ${input.confidence}% confidence (below ${CONFIDENCE_THRESHOLD}%) — review before acting on it.`,
+          link: "/copilot",
+        },
+      });
+    }
+  }
+  return row;
+}
+
+/** The AI feature catalog — feature → capability → routed model (AI feature catalog doc). */
+export async function aiCatalog(orgId: string, environment: string) {
+  const entries = await Promise.all(
+    Object.entries(FEATURE_CAPABILITY).map(async ([feature, capability]) => {
+      const decision = await routeModel(orgId, environment, feature);
+      return { feature, capability, model: decision.picked, reason: decision.reason };
+    })
+  );
+  return entries;
+}
+
+// Short-term memory (AIMemory) — scoped to a user or an entity, TTL-based.
+
+export async function listMemory(orgId: string, environment: string, scopeType: string, scopeId: string) {
+  return db().aiMemory.findMany({ where: { orgId, environment, scopeType, scopeId }, orderBy: { createdAt: "desc" }, take: 50 });
+}
+
+export async function writeMemory(orgId: string, environment: string, actorId: string, input: { scopeType: string; scopeId: string; key: string; value: unknown; ttlSeconds?: number }) {
+  if (!["user", "entity"].includes(input.scopeType)) throw badRequest("scopeType must be user or entity");
+  if (!input.key || !input.key.trim()) throw badRequest("key is required");
+  const expiresAt = input.ttlSeconds ? new Date(Date.now() + input.ttlSeconds * 1000) : new Date(Date.now() + 86_400_000);
+  // One row per (scope, key) — writing again replaces (short-term memory, not a log).
+  const existing = await db().aiMemory.findFirst({ where: { orgId, environment, scopeType: input.scopeType, scopeId: input.scopeId, key: input.key } });
+  if (existing) {
+    return db().aiMemory.update({ where: { id: existing.id }, data: { value: input.value as object, expiresAt, updatedAt: new Date() } });
+  }
+  return db().aiMemory.create({ data: { orgId, environment, scopeType: input.scopeType, scopeId: input.scopeId, key: input.key, value: input.value as object, expiresAt, createdBy: actorId } });
+}
+
+export async function deleteMemory(orgId: string, environment: string, id: string, actorId: string) {
+  const row = await db().aiMemory.findUnique({ where: { id } });
+  if (!row || row.orgId !== orgId || row.environment !== environment) throw notFound("Memory not found");
+  // User-scoped memory is private: only the owning user (or an admin) can forget it.
+  if (row.scopeType === "user" && row.scopeId !== actorId) throw badRequest("User memory is private to the caller");
+  await db().aiMemory.delete({ where: { id } });
+}
+
+/** Engine boot: purge expired memory on an interval (like the journey ticker). */
+let aiEngineStarted = false;
+export function startAiEngine() {
+  if (aiEngineStarted) return;
+  aiEngineStarted = true;
+  const purge = () => {
+    void db().aiMemory
+      .deleteMany({ where: { expiresAt: { lt: new Date() } } })
+      .catch((e) => console.error("[ai engine] memory purge failed", e));
+  };
+  purge();
+  setInterval(purge, 60_000);
+  console.log("  AI            · model router + data firewall + copilot ready (memory TTL purger running)");
+}

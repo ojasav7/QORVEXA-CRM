@@ -28,6 +28,9 @@ export function parseCriteria(objectType: string, raw: unknown): SegmentCriteria
 
 function normalizeValue(type: string | undefined, v: unknown): unknown {
   if (v === "" || v === null || v === undefined) return v;
+  // Array values (in / not_in) are normalized element-wise so they stay arrays
+  // — String(['a','b']) would collapse them into "a,b" and match nothing.
+  if (Array.isArray(v)) return v.map((x) => normalizeValue(type, x));
   if (type === "number" || type === "currency") return Number(v);
   if (type === "date") return new Date(String(v)).toISOString();
   if (type === "boolean") return v === true || v === "true";

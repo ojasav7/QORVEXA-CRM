@@ -430,6 +430,19 @@ export function createObjectService(cfg: ObjectConfig): ObjectService {
         actorId: user.id,
         payload: { from: before.stage, to: patch.stage },
       });
+    } else if (cfg.type === "ticket" && before.status !== patch.status) {
+      // Phase 4: ticket status transitions are a distinct event (ADR-016) —
+      // other ticket edits still emit ticket.updated. This is the workflow
+      // engine's `ticket.status_changed` trigger substrate.
+      await emitEvent({
+        orgId: user.orgId,
+        environment,
+        type: "ticket.status_changed",
+        entity: cfg.type,
+        entityId: id,
+        actorId: user.id,
+        payload: { from: before.status, to: patch.status },
+      });
     } else if (cfg.type === "task" && before.status !== "done" && patch.status === "done") {
       // Phase 3: the reserved task.completed event (docs/03-event-catalog.md).
       // Fires only on the todo/in_progress → done transition; other task

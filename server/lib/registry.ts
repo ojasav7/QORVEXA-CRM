@@ -78,6 +78,7 @@ export const OBJECTS: ObjectDef[] = [
       { key: "source", label: "Source", type: "select", options: ["Referral", "Website", "Cold outreach", "Event", "Import", "Other"] },
       { key: "status", label: "Status", type: "select", options: ["new", "contacted", "qualified", "converted", "lost"] },
       { key: "score", label: "Score", type: "number", list: true },
+      { key: "campaignId", label: "Campaign", type: "text" }, // Phase 5 attribution
     ],
   },
   {
@@ -124,6 +125,30 @@ export const OBJECTS: ObjectDef[] = [
       { key: "contactId", label: "Contact", type: "text" },
       { key: "accountId", label: "Account", type: "text" },
       { key: "opportunityId", label: "Deal", type: "text" },
+    ],
+  },
+  // Phase 4 · Customer Service — tickets are a first-class object type (ADR-016).
+  // The generic service powers CRUD/audit/events/search/custom fields; the
+  // ticket router (server/routes/tickets.ts) adds reference numbers, SLA
+  // deadlines, status transitions, replies, escalation, legal hold, and intake.
+  {
+    type: "ticket",
+    label: "Ticket",
+    labelPlural: "Tickets",
+    icon: "lifebuoy",
+    fields: [
+      { key: "reference", label: "Reference", type: "text", searchable: true, list: true },
+      { key: "subject", label: "Subject", type: "text", required: true, searchable: true, list: true },
+      { key: "description", label: "Description", type: "text", searchable: true },
+      { key: "status", label: "Status", type: "select", options: ["new", "open", "pending", "resolved", "closed"], list: true },
+      { key: "priority", label: "Priority", type: "select", options: ["low", "medium", "high", "urgent"], list: true },
+      { key: "channel", label: "Channel", type: "select", options: ["email", "web", "chat", "whatsapp", "sms", "phone", "social"], list: true },
+      { key: "source", label: "Source", type: "select", options: ["portal", "email", "manual"] },
+      { key: "contactId", label: "Contact", type: "text" },
+      { key: "accountId", label: "Account", type: "text" },
+      { key: "slaDueAt", label: "SLA due", type: "date", list: true },
+      { key: "escalated", label: "Escalated", type: "boolean", list: true },
+      { key: "legalHold", label: "Legal hold", type: "boolean" },
     ],
   },
 ];

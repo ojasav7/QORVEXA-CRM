@@ -30,6 +30,11 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 | ADR-013 | Multi-pipeline = `Pipeline`/`PipelineStage` models, lazily seeded default, pipeline-derived probability | Accepted |
 | ADR-014 | Phase 2 comm providers are mocked; tracking endpoints are public + token-scoped | Accepted |
 | ADR-015 | Workflows = declarative `Automation` rows consumed by an event-bus subscriber; actions act as the workflow's creator | Accepted |
+| ADR-016 | Tickets = generic object + thin helpdesk wrapper; SLA policy rows with a lazy seed + read-time status; legal hold = hard lock | Accepted |
+| ADR-017 | Campaigns/journeys = declarative rows consumed by engine subscribers; sends reuse the Phase-2 email path; journeys add a time ticker to the event bus | Accepted |
+| ADR-018 | BI metrics are derived (computed on read, never stored) so data lineage is first-class; forecasts persist as snapshots; predictive v1 is transparent arithmetic | Accepted |
+| ADR-019 | CDP = deterministic rule-based identity resolution (email is the canonical key) + behaviors that mirror the event bus + derived graph/health (explained) + full-tenant portability bundles | Accepted |
+| ADR-020 | Phase 8 AI = non-agentic copilot: deterministic-first generators (explained, audited, human-in-the-loop) + a model router with a data-residency pin + a data firewall that redacts PII before the model + confidence flagging | Accepted |
 
 ---
 
@@ -381,6 +386,349 @@ subscribers. The design question was how workflows are *defined* and *executed*.
   a durable run-key lands with the queue worker.
 - (−) Workflows can't act as non-admin users yet — the actor model is fixed to
   the creator. Per-action user impersonation is future scope.
+
+---
+
+## Amendments (2026-08-12 — Phase 4 completion)
+
+> Phase 4 (Customer Service) shipped tickets as a first-class object type with
+> SLAs, omnichannel intake (manual, email, and a public self-service portal),
+> a knowledge base, and legal hold / e-discovery. The full spec is
+> `docs/17-spec-phase4.md`; the verification evidence is
+> `docs/18-phase4-build-report.md`.
+
+## ADR-016 · Tickets = generic object + thin helpdesk wrapper; SLA policy rows with a lazy seed; legal hold = hard lock
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 4 needs tickets/cases with SLAs, omnichannel
+intake, a knowledge base, a self-service portal, and legal hold. Principle #1
+(ADR-003) says never hard-code a table per feature — a ticket should behave
+exactly like a deal (CRUD, audit, events, search, custom fields, workflows). But
+a helpdesk has service-specific behavior the generic engine must not absorb:
+per-org reference numbers, SLA deadlines, reply threads, legal hold, and intake
+that acts on behalf of unauthenticated customers.
+
+**Decision:**
+- **Tickets are a generic object.** `Ticket` registered in `registry.ts` with
+  `eventPrefix: "ticket"` → the generic service emits `ticket.created` /
+  `updated` / `deleted` / `status_changed`, and audits every mutation. The thin
+  wrapper (`routes/tickets.ts`) layers the helpdesk surface on top: `TKT-####`
+  references, queue counts, replies (`TicketReply` rows with an `internal`
+  flag), assignment, escalation, legal hold, email intake, and
+  convert-to-lead. Same shape as lead forms (public-leads.ts) and booking.
+- **SLAs are policy rows.** `SlaPolicy` (org × environment, `targets` JSON)
+  lazily seeded with defaults (`urgent 1h / high 4h / medium 8h / low 24h`).
+  Create sets `slaDueAt` = now + `responseHoursFor(priority)`; read-time
+  `slaStatus` is always computed from the clock (never stored, so it can't go
+  stale); an admin-triggered **breach sweep** persists `breachedAt`, emits
+  `ticket.sla_breached`, and auto-escalates high/urgent breaches. Priority
+  changes restart the clock; resolution sets `resolvedAt` + `firstResponseAt`.
+- **Public intake follows the ADR-012 playbook.** The portal is an
+  unauthenticated surface guarded by a honeypot + per-IP rate limit, with a
+  **no-leak status lookup** — email + reference must both match, else a generic
+  "not found"; only non-internal replies are ever exposed. Submissions act as
+  the portal page's id (a system actor), so org field permissions never block
+  capture; contacts are auto-created/linked by email (`autoCreateContact`).
+- **Legal hold is a hard lock.** Admin-only toggle. While held: the generic
+  PATCH is blocked for non-admins (only an admin can lift the hold), and
+  delete/reply/assign/escalate are blocked for everyone.
+- **`slaDueAt` normalization lives in the wrapper.** The generic service stores
+  raw values; a string `slaDueAt` would be stored as a string and Mongo `$lt`
+  (Date) comparisons in the sweep would never match it. The PATCH wrapper
+  converts to a `Date` before the service writes (same discipline as
+  `merge.ts`'s `validateFieldValue`).
+
+**Consequences:**
+- (+) Tickets get audit, events, search, custom fields, and workflow automation
+  (Phase 3 triggers `ticket.created` / `status_changed` / `escalated`) for free
+  — the generic engine earned its keep on a second object family.
+- (+) SLA status can never show a stale "on track" — it's derived from the
+  clock, and the sweep is the durable breach record.
+- (−) The sweep is admin-triggered (in-process), not a background scheduler —
+  at Phase-0–4 scale that's fine; a queue worker + cron lands with Phase 3+
+  infrastructure upgrades.
+- (−) Priority-change restarts the SLA clock (documented v1 semantics) — no
+  partial-credit model yet.
+- (−) Reply threads are `TicketReply` rows joined by `ticketId`, not an
+  embedded array — consistent with the repo's no-relations convention
+  (ADR-002), but list-reads are two queries.
+
+---
+
+## Amendments (2026-08-12 — Phase 5 completion)
+
+> Phase 5 (Marketing Automation & Journey Orchestration) shipped campaigns
+> (send-to-segment with A/B subjects, open/click tracking rollup, attribution /
+> ROI), landing pages + public form capture, the journey orchestration engine
+> (event → wait → action with a ticker), and deliverability monitoring. The full
+> spec is `docs/19-spec-phase5.md`; the verification evidence is
+> `docs/20-phase5-build-report.md`.
+
+## ADR-017 · Campaigns/journeys = declarative rows consumed by engine subscribers; journeys add time to the event bus
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 5 needs campaigns, landing pages, and customer
+journeys — full-funnel marketing without a separate tool. The platform already
+had the ingredients: dynamic segments (Phase 1) are the audience definition, the
+Phase-2 email path (tracking token, `email.sent`/open/click events) is the send
+pipeline, and the Phase-3 workflow engine proved the "declarative row consumed by
+an event-bus subscriber" pattern. The design questions were how campaigns send,
+how journeys differ from workflows, and how public capture stays safe.
+
+**Decision:**
+- **Definition:** `Campaign` and `Journey` are declarative rows (org ×
+  environment), same philosophy as `Automation` (ADR-015) and `Segment.criteria`
+  (ADR-003) — data, not code; no deploy per campaign/journey. A campaign holds
+  subject/body + A/B config + an `audienceSegmentId`; a journey holds a trigger
+  (an event, or a segment) and an ordered step list.
+- **Sending reuses the Phase-2 email path.** `sendCampaign` resolves the
+  audience from the segment (org + environment scoped, snapshot at send time),
+  splits A/B, and writes one `Message` row per recipient (tracking token,
+  `email.sent`) plus a `CampaignRecipient` link with the variant + open/click
+  state. Stats/ROI are computed on read from recipient rows (never stale);
+  attribution v1 = sum of `won` deal amounts on recipient contacts; landing
+  submissions tag `Lead.campaignId` (a core field) for attribution.
+- **Journeys = workflows + time.** The engine subscribes to the event bus like
+  workflows but adds a **ticker**: `wait` steps flip an enrollment to `waiting`
+  with a `nextRunAt`, and a 60s in-process pass advances due enrollments. Every
+  step executes through the same helpers as workflows (generic object service
+  for create_task/update_record, the email path, Notification rows) and logs a
+  `JourneyStepRun` — the journey's run log. Loop guard: one active enrollment
+  per (journey, entity); the ticker claims each due enrollment with a
+  conditional update before advancing, so concurrent passes can't double-run a
+  step. An admin `POST /api/journeys/advance` runs a manual pass (deterministic
+  tests); `POST :id/test` runs synchronously against a real contact.
+- **Public capture follows the ADR-012 playbook.** Landing pages are
+  unauthenticated: honeypot + per-IP rate limit, no-leak duplicates, and
+  `form.submitted` emitted **only when a lead is created** (the workflow/journey
+  engines must never fire against an empty entityId). Landing slugs are
+  **globally unique** — the public router is org-blind, so a per-org check would
+  let a second tenant shadow a page (same rule as Phase 4 portals).
+- **Deliverability is derived + simulated.** Metrics compute from `Message` rows
+  in the current environment (never stale); provider events (bounce /
+  unsubscribe / complaint) are simulated via an admin endpoint (ADR-014).
+
+**Consequences:**
+- (+) Campaigns and journeys compose real marketing without code; every send
+  and every journey step is inspectable (recipients, run log, events).
+- (+) The event bus now feeds a second engine family — later phases (agent
+  triggers, BI attribution) reuse the same row+subscriber pattern.
+- (−) Audience size is capped at 1 000 recipients per send (v1 snapshot
+  pagination); segmented sends beyond that need a queue worker.
+- (−) Ticker + cooldowns are in-memory (per instance, resets on restart) — fine
+  for v1; durable scheduling lands with the documented queue-worker upgrade.
+- (−) Attribution is first-touch-ish (won deals on recipient contacts) — no
+  multi-touch credit model yet; the `CampaignRecipient` links make that a data
+  question, not a rewrite.
+
+---
+
+## Amendments (2026-08-12 — Phase 6 completion)
+
+> Phase 6 (Analytics, Forecasting & BI) shipped the metrics library with
+> **data lineage**, five dashboard kinds, the weighted forecast + snapshot
+> history, predictive v1 (conversion / churn / LTV), the report builder, and
+> metric thresholds (`metric.threshold_breached` + admin notifications). The
+> full spec is `docs/21-spec-phase6.md`; the verification evidence is
+> `docs/22-phase6-build-report.md`.
+
+## ADR-018 · Metrics are derived (computed on read) so lineage is first-class; forecasts persist as snapshots; predictive v1 is transparent arithmetic
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 6 needs dashboards, a standard metrics
+library (win rate, sales velocity, CAC/LTV, churn…), sales forecasting, and
+predictive analytics v1 — "replace spreadsheets for reporting". The platform
+already computes dashboard stats on read, the event log (ADR-004) records
+every state change, and pipeline stages carry the probabilities a weighted
+forecast needs. The design questions were whether metrics are stored or
+derived, what gets persisted, and how "predictive" stays honest.
+
+**Decision:**
+- **Metrics are derived, never stored.** Every metric is computed on read
+  from live rows + the event log (same discipline as Phase-5 stats). Because
+  the number is *produced* by a query, that query IS the lineage: each metric
+  carries `sources: [{ entity, query, note }]` describing exactly which
+  rows/events produced it — data lineage for free, impossible with a stored
+  metric (a stored number can't explain itself). The Analytics UI renders the
+  lineage per metric; `GET /api/analytics/sources` is the dictionary.
+- **The only persisted Phase-6 artifacts are `Forecast` snapshots and
+  `Report` configs.** An admin refresh writes one `Forecast` row (buckets +
+  per-stage + per-owner JSON) that doubles as history; `Report` rows are
+  saved dashboard configs (`kind` + `keys`) whose `data` endpoint renders
+  LIVE metrics — a report can never go stale because nothing in it is stored.
+- **Forecasting = the weighted pipeline.** `pipeline` (raw open amounts),
+  `weighted` (Σ amount × pipeline-derived probability), `commit` (≥75%),
+  `bestCase` (≥50%) — bucketed and rolled per owner. Same source of truth as
+  the dashboard and the deals board (the pipeline's stage definitions).
+- **Predictive v1 is transparent arithmetic** with documented inputs and a
+  score formula — no black box. Conversion likelihood from stage probability
+  + amount vs org average + age; churn from inactivity (60d grace) + open
+  tickets + no open deals; LTV from won amounts ÷ account contacts × a
+  configured lifetime multiplier. Every score returns its `inputs` breakdown
+  for the UI to show.
+- **Thresholds evaluate at refresh time.** The admin action that snapshots
+  the forecast also checks the org's configured thresholds (winRate /
+  pipelineCoverage / campaignsOpenRate / slaHealth) against the current
+  metrics; breaches write admin notifications + emit
+  `metric.threshold_breached`.
+
+**Consequences:**
+- (+) Lineage is structurally guaranteed — every displayed number can answer
+  "where does this come from?".
+- (+) Reports and dashboard numbers can never be stale; forecast history is
+  the durable record (the Phase 6-lite "weighted forecasts are ready to
+  compute" substrate, formalized).
+- (−) Derived metrics pay query cost on every read — fine at Phase-0–6 scale;
+  a precompute/materialization layer is the documented scale-up path.
+- (−) Snapshot history only exists where admins refresh; no automatic
+  scheduling yet (same in-process-limitations trade-off as ADR-009-A /
+  ADR-017 — a queue worker + cron is the shared upgrade path).
+- (−) Predictive v1 is heuristic arithmetic, not fitted models — intentional
+  (explainable + no training data), with the formula surfaced in the UI so
+  nobody mistakes it for ML.
+
+---
+
+---
+
+## Amendments (2026-08-12 — Phase 7 completion)
+
+> Phase 7 (CDP / Customer 360) shipped deterministic identity resolution
+> (unified `IdentityProfile`s over contacts + leads), behavioral event tracking
+> (API ingest + an event-bus mirror), the customer 360 view, a derived
+> relationship graph with influence scoring, an explained health engine with
+> snapshot history, and the 🆕 right-to-portability full-tenant export. The
+> full spec is `docs/23-spec-phase7.md`; the identity rules / graph schema /
+> health formula are in `docs/25-cdp-guide.md`; the verification evidence is
+> `docs/24-phase7-build-report.md`.
+
+## ADR-019 · CDP = deterministic identity resolution + behaviors that mirror the event bus + derived graph/health + portability bundles
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 7 needs identity resolution, real-time
+profiles, behavioral tracking, a relationship graph, a customer health engine,
+and right-to-portability export. The platform already has the raw material:
+every contact/lead carries email + phone + name, and the event bus (ADR-004)
+persists every touchpoint (`email.opened`, `form.submitted`, `ticket.created`,
+`call.completed`, `meeting.completed`). The design questions were how identity
+resolution stays honest without ML, how behaviors get collected without
+instrumenting every source, and what gets persisted vs derived.
+
+**Decision:**
+- **Identity resolution v1 is deterministic and rule-based.** Email is the
+  canonical key (lowercased, unique per org × env); phone + name+company are
+  secondary rules surfaced through the merge flow, never auto-merged without
+  email evidence. Records attach to a profile on creation (the CDP engine
+  subscribes to `contact.created`/`lead.created`); two records under one
+  profile = one identity → `customer.identity_merged` with lineage. Admin
+  `rebuild` reconciles everything idempotently; admin `merge` moves members +
+  behaviors + health history and records `mergedFromIds`. No ML, no vendor:
+  every merge is explainable and auditable (Phase 8/9 AI owns fuzzy matching).
+- **Behaviors are a separate collection that MIRRORS the event bus.**
+  `BehaviorEvent` (type, profileId, entity, value, meta, source) records what
+  the *customer* did across web/product/purchase/support/ads — distinct from
+  the system `Event` log. Two ingestion paths: an authenticated API
+  (`POST /api/cdp/behaviors` — websites/products) and a boot subscriber that
+  mirrors selected system events (email.open/click/reply, form.submitted,
+  ticket.created, call/meeting.completed) by resolving the record row — no
+  code at the source, no double-send (the automation/journey engine pattern).
+- **The relationship graph and health are DERIVED on read** (ADR-018
+  discipline) and every number explains itself. Influence = weighted real
+  touchpoints (email 1–4, call 3, meeting 5, ticket 2, primary +10, cap 100).
+  Health = engagement(40) + support(25) + revenue(25) + recency(10), with
+  churnRisk = 100 − score; each component returns its raw inputs + formula.
+  The only persisted artifacts are `HealthScore` snapshots (history + deltas,
+  written by an admin refresh that emits `customer.health_changed` /
+  `customer.churn_risk_changed`) and `PortabilityExport` rows.
+- **Portability is a full-tenant bundle** (🆕 blueprint item): one admin click
+  builds a single downloadable JSON with EVERY org × environment collection
+  (objects, comms, tickets, marketing, analytics, CDP rows, plus `Event` +
+  `AuditLog`), written under `backups/portability/` with a tracking row;
+  staff users are included minus password hashes. Downloads stream the file;
+  DELETE purges row + file (path-traversal-safe).
+
+**Consequences:**
+- (+) Identity merges are explainable and auditable end-to-end (rules +
+  events + lineage) — the trust mechanism for the whole CDP.
+- (+) Touchpoint coverage is complete by construction (the event bus is the
+  source of truth) instead of per-integration instrumentation.
+- (+) Graph + health can't go stale and are self-documenting (inputs +
+  formula in every response); the 360 UI shows exactly why a customer scores
+  what they do.
+- (+) GDPR-shaped portability with a real download/purge lifecycle.
+- (−) No ML resolution / device-ID stitching — anonymous records are tracked
+  but not unified (deferred to Phase 8/9, documented).
+- (−) Health snapshots only persist on admin refresh (same in-process
+  limitation as ADR-009-A / ADR-017 / ADR-018; the queue-worker + cron
+  upgrade path is shared).
+- (−) The 360 view runs several queries per profile — fine at demo scale; a
+  materialized profile store is the documented scale-up path.
+- (−) Also fixed during verification: the Phase-5 campaign A/B split treated
+  `splitA` (a 0–100 **percentage**) as an absolute index cutoff, so variant B
+  never appeared for audiences smaller than `splitA` — now
+  `index/audience.length × 100 ≥ splitA` (the same drive-by-fix spirit as the
+  Phase-5 segment `in/not_in` fix).
+
+---
+
+## ADR-020 · Phase 8 AI = non-agentic copilot: deterministic-first generators + model router + data firewall + confidence flagging
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 8 is the "AI Assistant Layer (Non-Agentic
+AI)": AI email/summary/report writing, call & meeting summarization, semantic
+search, AI scoring, explainability, and (🆕) confidence scoring, a data
+firewall, and a model router. The blueprint is explicit that Phase 8 is a
+**copilot** — it suggests; it does not act. Phases 1–7 already produced a rich
+substrate: real event/audit history, unified customer profiles (Phase 7), and
+explained health/graph data — the exact context an assistant needs.
+
+**Decision:**
+
+1. **Non-agentic, human-in-the-loop.** Every AI capability is a read-only
+   generator returning an **explained, audited, reversible suggestion** —
+   nothing writes to the CRM without a human clicking. Agentic autonomy is
+   Phase 9+ (where the governance model in `docs/04-permissions.md` applies).
+2. **Deterministic-first models.** Routing, scoring, sentiment, intent, and
+   semantic search are transparent arithmetic/keyword rules so every output
+   ships its inputs + reasons (the ADR-018 discipline applied to AI). The
+   model-router layer is where a real LLM provider plugs in later **without
+   changing the API contract** — `runAi` already returns `{ insight,
+   decision }` with model + latency metadata.
+3. **Model router = data + policy.** `ModelRoute` rows (catalog) + an
+   org-configurable policy (`defaultModel`, `preference: cost|quality|latency`,
+   `preferredRegion`). `preferredRegion: "eu"` pins routing to the EU-resident
+   model — the 🆕 data-residency-aware routing item, fulfilled without
+   multi-region hosting because the pin is a routing rule. Every decision is
+   explainable (`{ picked, reason, candidates }`).
+4. **Every prompt is server-built and firewalled.** The context for every
+   generator is assembled server-side and passed through `redactContext`
+   **before the model sees it**; the redaction log rides in the insight and is
+   rendered in the UI. PII never leaves the tenant boundary except as the
+   caller already authorized (a real provider integration keeps this contract).
+5. **Everything is audited.** `AIInsight` rows + `ai.*` events make every AI
+   output a first-class, searchable, deletable record — the explainability and
+   audit-trail requirements in one mechanism. `AIInsight` also carries the
+   router decision's model + latency so cost/quality is reviewable.
+6. **Confidence is a first-class output.** Every generator computes confidence
+   0–100; below threshold → `lowConfidence` + `ai.confidence_flagged` +
+   an admin notification (kind `ai`) — the same alerting pattern as Phase 6
+   metric thresholds, so the header bell surfaces risk without polling.
+
+**Consequences:**
+- (+) Every AI output is explainable + auditable + deletable; no black box.
+- (+) Real LLM providers slot in behind the router/firewall without API churn.
+- (+) Data-residency routing shipped as a config rule, not infrastructure.
+- (−) Deterministic-first means the "AI" is bounded by its rule tables — the
+  deliberate trade for explainability; ML scoring is Phase 9+.
+- (−) Firewall redaction is regex + allowlist-based (robust at this scale;
+  a provider-side PII scrubber is the documented upgrade path).
+- (−) Memory is in-process row storage with TTL — fine at demo scale; a
+  vector store is the documented scale-up path (Phase 9 groundwork).
 
 ---
 

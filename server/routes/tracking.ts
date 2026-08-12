@@ -32,6 +32,7 @@ router.get(
           data: { openedAt: message.openedAt ?? new Date(), openedCount: { increment: 1 }, status: message.status === "replied" ? "replied" : "opened", updatedAt: new Date() },
         });
         if (!wasOpened) {
+          await rollupCampaignRecipient(message, "opened");
           await emitEvent({
             orgId: message.orgId,
             environment: message.environment,
@@ -39,7 +40,7 @@ router.get(
             entity: "message",
             entityId: message.id,
             actorId: message.ownerId,
-            payload: { to: message.toEmail, subject: message.subject, contactId: message.contactId ?? null },
+            payload: { to: message.toEmail, subject: message.subject, contactId: message.contactId ?? null, campaignId: message.campaignId ?? null },
           });
         }
       } catch (e) {
@@ -77,6 +78,7 @@ router.get(
           data: { clickedAt: message.clickedAt ?? new Date(), status: message.status === "replied" ? "replied" : "clicked", updatedAt: new Date() },
         });
         if (!wasClicked) {
+          await rollupCampaignRecipient(message, "clicked");
           await emitEvent({
             orgId: message.orgId,
             environment: message.environment,
@@ -84,7 +86,7 @@ router.get(
             entity: "message",
             entityId: message.id,
             actorId: message.ownerId,
-            payload: { to: message.toEmail, subject: message.subject, url: url.toString(), contactId: message.contactId ?? null },
+            payload: { to: message.toEmail, subject: message.subject, url: url.toString(), contactId: message.contactId ?? null, campaignId: message.campaignId ?? null },
           });
         }
       } catch (e) {
@@ -94,5 +96,25 @@ router.get(
     res.redirect(302, url.toString());
   })
 );
+
+/**
+ * Roll a tracking event up into the campaign's recipient + count rows (Phase
+ * 5). Fire-and-forget — tracking must never block the pixel/redirect. Only
+ * the FIRST open/click counts (wasOpened/wasClicked guards in the callers).
+ */
+async function rollupCampaignRecipient(message: any, kind: "opened" | "clicked") {
+  try {
+    if (!message.campaignId) return;
+    const now = new Date();
+    await db().campaignRecipient.updateMany({
+      where: { messageId: message.id, campaignId: message.campaignId },
+      data: kind === "opened" ? { status: "opened", openedAt: now } : { status: "clicked", clickedAt: now },
+    });
+    const field = kind === "opened" ? "openedCount" : "clickedCount";
+    await db().campaign.update({ where: { id: message.campaignId }, data: { [field]: { increment: 1 }, updatedAt: now } });
+  } catch (e) {
+    console.error("[tracking campaign rollup]", e);
+  }
+}
 
 export default router;
