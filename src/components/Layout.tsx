@@ -5,7 +5,8 @@ import {
   Activity, Settings, LogOut, Search, Menu, X, Upload, GitBranch, ListFilter,
   Mail, Phone, CalendarDays, CalendarClock, FileText, Bell, GitMerge, CheckCheck,
   Sun, Moon, LifeBuoy, BookOpen, Globe, Megaphone, Rocket, Waypoints, Gauge,
-  BarChart3, LayoutDashboard as ReportIcon, UserRound, Package, Sparkles, Route as RouteIcon,
+  BarChart3, LayoutDashboard as ReportIcon, UserRound, Package, Sparkles, Route as RouteIcon, Bot, DollarSign,
+  HeartHandshake, HardHat, Store,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useSession, useFeature } from "../App";
@@ -43,6 +44,11 @@ export default function Layout() {
   const showPortability = useFeature("cdp.portability");
   const showCopilot = useFeature("ai.assistant");
   const showModels = useFeature("ai.modelRouter");
+  const showAgents = useFeature("ai.agents");
+  const showRevenue = useFeature("revenue.products") || useFeature("revenue.cpq") || useFeature("revenue.billing") || useFeature("revenue.metrics");
+  const showSuccess = useFeature("cs.plans") || useFeature("cs.usage") || useFeature("cs.churn") || useFeature("cs.surveys") || useFeature("cs.loyalty");
+  const showField = useFeature("field.territories") || useFeature("field.visits") || useFeature("field.workorders") || useFeature("field.inventory");
+  const showEcosystem = useFeature("ecosystem.marketplace") || useFeature("ecosystem.partners") || useFeature("ecosystem.changesets") || useFeature("ecosystem.schema");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -225,7 +231,7 @@ export default function Layout() {
               Portability
             </NavLink>
           )}
-          {(showCopilot || showModels) && (
+          {(showCopilot || showModels || showAgents) && (
             <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">AI</div>
           )}
           {showCopilot && (
@@ -238,6 +244,48 @@ export default function Layout() {
             <NavLink to="/models" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <RouteIcon className="size-4" />
               Model router
+            </NavLink>
+          )}
+          {showAgents && (
+            <NavLink to="/agents" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Bot className="size-4" />
+              Agents
+            </NavLink>
+          )}
+          {showRevenue && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Revenue</div>
+          )}
+          {showRevenue && (
+            <NavLink to="/revenue" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <DollarSign className="size-4" />
+              Revenue
+            </NavLink>
+          )}
+          {showSuccess && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Customer success</div>
+          )}
+          {showSuccess && (
+            <NavLink to="/success" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <HeartHandshake className="size-4" />
+              Success
+            </NavLink>
+          )}
+          {showField && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Field ops</div>
+          )}
+          {showField && (
+            <NavLink to="/field" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <HardHat className="size-4" />
+              Field
+            </NavLink>
+          )}
+          {showEcosystem && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Ecosystem</div>
+          )}
+          {showEcosystem && (
+            <NavLink to="/ecosystem" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Store className="size-4" />
+              Ecosystem
             </NavLink>
           )}
           <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
@@ -382,7 +430,7 @@ export default function Layout() {
                   <Package className="size-4" /> Portability
                 </NavLink>
               )}
-              {(showCopilot || showModels) && (
+              {(showCopilot || showModels || showAgents) && (
                 <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">AI</div>
               )}
               {showCopilot && (
@@ -393,6 +441,31 @@ export default function Layout() {
               {showModels && (
                 <NavLink to="/models" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
                   <RouteIcon className="size-4" /> Model router
+                </NavLink>
+              )}
+              {showAgents && (
+                <NavLink to="/agents" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Bot className="size-4" /> Agents
+                </NavLink>
+              )}
+              {showRevenue && (
+                <NavLink to="/revenue" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <DollarSign className="size-4" /> Revenue
+                </NavLink>
+              )}
+              {showSuccess && (
+                <NavLink to="/success" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <HeartHandshake className="size-4" /> Success
+                </NavLink>
+              )}
+              {showField && (
+                <NavLink to="/field" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <HardHat className="size-4" /> Field
+                </NavLink>
+              )}
+              {showEcosystem && (
+                <NavLink to="/ecosystem" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Store className="size-4" /> Ecosystem
                 </NavLink>
               )}
               <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>

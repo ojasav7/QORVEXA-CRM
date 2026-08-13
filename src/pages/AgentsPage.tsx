@@ -134,7 +134,6 @@ export default function AgentsPage() {
 
   const agentById = (id: string) => agents.find((a) => a.id === id);
   const agentName = (id: string) => agentById(id)?.name ?? id.slice(0, 8);
-  const actionTool = (tool: string) => ({ create_task: "create task", notify: "notify", create_ticket: "create ticket", update_record: "update record", send_email: "send email" } as Record<string, string>)[tool] ?? tool;
 
   const runAgentOn = async (agentId: string, entity: string, entityId: string) => {
     try {
@@ -359,6 +358,8 @@ function AgentsTab({ agents, templates, toolTiers, isAdmin, onChanged, onFlash, 
     </div>
   );
 }
+
+const actionTool = (tool: string) => ({ create_task: "create task", notify: "notify", create_ticket: "create ticket", update_record: "update record", send_email: "send email" } as Record<string, string>)[tool] ?? tool;
 
 const actionIcon = (tool: string) =>
   tool === "send_email" ? <Mail className="size-3" /> : tool === "create_task" ? <ListChecks className="size-3" /> : tool === "create_ticket" ? <TicketIcon className="size-3" /> : tool === "update_record" ? <Pencil className="size-3" /> : <Zap className="size-3" />;
@@ -688,8 +689,8 @@ function AnalyticsTab() {
   const [meter, setMeter] = useState<{ total: number; currency: string; model: string; agents: any[]; byEntity: { entity: string; _sum: { cost: number } | null; _count: { _all: number } }[] } | null>(null);
 
   useEffect(() => {
-    void api("/api/agents/analytics").then(setData).catch(() => {});
-    void api("/api/agents/metering").then(setMeter).catch(() => {});
+    void api<{ agents: any[]; totals: { runs: number; actions: number; costTotal: number; waitingApproval: number } }>("/api/agents/analytics").then(setData).catch(() => {});
+    void api<{ total: number; currency: string; model: string; agents: any[]; byEntity: { entity: string; _sum: { cost: number } | null; _count: { _all: number } }[] }>("/api/agents/metering").then(setMeter).catch(() => {});
   }, []);
 
   const maxAgentCost = Math.max(1, ...(meter?.agents.map((a) => a.costTotal) ?? [0]));

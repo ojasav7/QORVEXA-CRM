@@ -35,6 +35,10 @@ Each ADR: **Context** (what we were solving) → **Decision** (what we chose) �
 | ADR-018 | BI metrics are derived (computed on read, never stored) so data lineage is first-class; forecasts persist as snapshots; predictive v1 is transparent arithmetic | Accepted |
 | ADR-019 | CDP = deterministic rule-based identity resolution (email is the canonical key) + behaviors that mirror the event bus + derived graph/health (explained) + full-tenant portability bundles | Accepted |
 | ADR-020 | Phase 8 AI = non-agentic copilot: deterministic-first generators (explained, audited, human-in-the-loop) + a model router with a data-residency pin + a data firewall that redacts PII before the model + confidence flagging | Accepted |
+| ADR-021 | Phase 9 AI agents = declarative `Agent` rows (trigger + rules + tool allowlist + per-tool risk tiers) consumed by an event-bus engine; risk-tiered actions (🟢 auto / 🟡 approval / 🔴 admin) with kill switches, a dry-run testing lab, simulated cost metering, and the run row as the full AI audit trail | Accepted |
+| ADR-023 | Phase 11 Customer Success = plans/usage/churn/surveys/loyalty as scoped rows with derived-on-read, explained scores; the event-bus usage mirror + an engine ticker; the churn factor list IS the playbook; negative feedback promotes into the roadmap | Accepted |
+| ADR-024 | Phase 12 Field Operations = the same row-as-config + evented + RBAC discipline applied to physical work: territories/technicians/visits/work orders/assets/inventory as scoped rows, derived SLA/maintenance/reorder flags with an engine ticker, and offline sync as one deterministic last-write-wins endpoint | Accepted |
+| ADR-025 | Phase 13 Ecosystem = the extensibility loop as scoped rows + one engine: marketplace listings whose install payloads apply into the existing engines (agent templates → Phase 9 agents, webhook events → webhooks), partners with derived-on-read commissions, change sets that diff + replay config/schema across environments, and change-impact analysis that refuses unsafe field deletions | Accepted |
 
 ---
 
@@ -729,6 +733,249 @@ explained health/graph data — the exact context an assistant needs.
   a provider-side PII scrubber is the documented upgrade path).
 - (−) Memory is in-process row storage with TTL — fine at demo scale; a
   vector store is the documented scale-up path (Phase 9 groundwork).
+
+---
+
+## ADR-021 · Phase 9 AI agents = governed autonomous actions (declarative rows + risk tiers + kill switch + testing lab + metering)
+
+**Status:** Accepted
+
+**Context:** Phase 8 shipped the non-agentic copilot. The blueprint's Phase 9
+("AI performs work, not just suggests it") adds autonomy, but autonomy without
+rails is how a CRM hurts a customer. The governance model was already
+codified in `docs/04-permissions.md` (🟢 automatic / 🟡 approval required / 🔴
+human required — blueprint §3.4), and the Phase 8 router + data firewall +
+insight audit trail established the context pipeline. The questions were:
+how are agents defined (code vs data), how is the tier table enforced, and
+how do the 🆕 kill switch, testing lab, and cost metering become real.
+
+**Decision:**
+
+1. **Agents are declarative rows, not code** — the ADR-015/017 pattern
+   (like `Automation` / `Journey`): `Agent { trigger, rules, tools, tierPolicy,
+   memoryEnabled, active, killSwitched }`, consumed by one event-bus engine
+   (`startAgentEngine` — `onEvent("*")` like workflows) + a manual/test
+   endpoint. The engine is the only code; an admin edits rows via `/api/agents`.
+   Governance composes with RBAC (config writes admin-only) instead of
+   replacing it.
+2. **The tool allowlist + tier table are the safety boundary** — actions
+   whose tool isn't on the agent's `tools` list are filtered before the run;
+   per-agent `tierPolicy` overrides the default table (`send_email` /
+   `update_record` default 🟡; `create_task`/`notify`/`create_ticket` 🟢).
+   🟢 executes in-run through the generic object service (audit + events for
+   free); 🟡 persists `proposed` → admin/manager approval; 🔴 is admin-only
+   and never automatic.
+3. **Deterministic, explainable deciders** — per-kind rule tables (lead /
+   sales / service / renewal / custom) return `{ actions, reasoning }`;
+   every proposal carries an English reason. Same ADR-020 trade as Phase 8:
+   a real LLM planner slots in behind the same firewall + audit trail.
+4. **The run row IS the audit trail** — `AgentRun` (firewalled context,
+   reasoning, riskSummary, cost, status) + `AgentAction` rows (tool, tier,
+   params, reason, result, approvedBy) + the `agent.*` event lifecycle.
+5. **Safety rails ship with the autonomy** — the org-wide + per-agent kill
+   switches (checked before every run, event or manual), the dry-run testing
+   lab (`passed` / `blocked`), the approval queue (push-notified), and
+   simulated cost metering (tokens × cheapest `ModelRoute` price) are
+   first-class features of the phase, not add-ons.
+
+**Consequences:**
+- (+) Autonomy is auditable end-to-end and stoppable in one click — the
+  governance table is enforced mechanically, not by convention.
+- (+) Agents reuse the object model + event bus + Phase 8 firewall/router,
+  so later phases (multi-agent orchestration, marketplace, Business Brain)
+  build on the same substrate.
+- (−) Deciders are bounded by rule tables until a real planner lands (the
+  documented Phase 15 path); planning quality is deliberately traded for
+  explainability, same as ADR-020.
+- (−) Cost metering is simulated dollars against catalog prices — real
+  token billing arrives with real model providers / the usage-billing phase.
+- (−) Agent memory is per-entity TTL rows at demo scale; a vector store is
+  the documented scale-up path (ADR-020).
+
+---
+
+## ADR-023 · Phase 11 Customer Success = derived, explained, evented (plans as rows + usage mirror + churn factor list as playbook + feedback → roadmap)
+
+**Status:** Accepted
+
+**Context:** Phase 7 shipped the health engine (an explained 0–100 score per
+account) and Phase 10 the Revenue Cloud (subscriptions, invoices, dunning).
+The blueprint's Phase 11 adds the customer-success operating loop — plans,
+usage intelligence, churn v2, surveys, loyalty. The questions were: where does
+product-usage data come from, how is churn scored without a black box, and
+how do "listen to customers" and "reward advocates" stay composable with the
+event bus + RBAC + environment scoping the platform already has.
+
+**Decision:**
+
+1. **Plans/usage/churn/surveys/loyalty are scoped rows, not code** — the
+   ADR-015/017/021 pattern: `SuccessPlan`, `UsageEvent`, `Survey`(+`Response`),
+   `RoadmapItem`, `LoyaltyProgram`/`LoyaltyMember`/`ReferralRecord`, and
+   `ChurnScore` are Prisma models keyed by `orgId` + `environment` (ADR-008),
+   consumed by one engine (`startSuccessEngine` — `onEvent("*")` + a ticker,
+   like workflows/journeys/agents) and a REST surface. Reads open, writes
+   admin/manager, every area feature-flagged (`cs.plans` … `cs.loyalty`).
+2. **Usage has two ingestion paths — an API and an event-bus mirror** —
+   `POST /api/success/usage` (the product posts telemetry) plus the engine
+   mapping system events → feature usage (`meeting.completed` → meetings,
+   `email.sent` → email, …), the exact Phase 7 CDP mirror pattern. One
+   `UsageEvent` row serves feature adoption, seat utilization, and inactivity
+   — no separate per-signal tables.
+3. **Churn v2 is derived at read and explained; the factor list IS the
+   playbook** — the score is computed from five signal groups (Phase 7 health,
+   usage trend/inactivity, support burden, billing health, survey sentiment)
+   with per-factor `{ key, label, impact, detail }`; a refresh (or the ticker)
+   persists `ChurnScore` snapshots under one `refreshId`, and only tier
+   *escalations* emit `churn.risk_scored` (no steady-state noise). Same
+   ADR-020 trade as AI: a learned model slots in behind the same interface
+   later; today every number is auditable arithmetic.
+4. **Survey results are computed at read with lineage** (NPS =
+   %promoters − %detractors, formula attached — the ADR-018 discipline) and
+   **negative feedback promotes into the roadmap** (`RoadmapItem` with votes)
+   — the blueprint's feedback → roadmap pipeline is a first-class row flow,
+   not a manual copy-paste chore.
+5. **Loyalty tiers are derived, referrals are evented** — tier = highest
+   `tier.minPoints` ≤ points at read; `converted` referrals award the referrer
+   (`loyalty.points_awarded`) and the engine ticker can detect conversion.
+
+**Consequences:**
+- (+) The success loop composes with what exists: health (Phase 7), billing
+  (Phase 10), events + notifications + RBAC + environments all reused; the
+  Success page and the bell surface the same stream (adoption drops, churn
+  escalations, referral conversions → `kind: "cs"` notifications).
+- (+) Explained scores + snapshots give the UI history and the CSM a
+  playbook, not a number.
+- (−) Sentiment + churn v2 are keyword/arithmetic models (ADR-020 discipline)
+  until real NLU/ML lands — bounded, transparent, and upgradeable.
+- (−) Usage events only exist where the product posts them or the mirror
+  covers the event; deep product instrumentation is a Phase 12+ concern.
+- (−) Loyalty rewards are config + points, not a redemption/fulfillment flow;
+  that's a later slice (spec §3).
+
+---
+
+## ADR-024 · Phase 12 Field Operations = the same discipline applied to physical work (rows + events + derived flags + one sync contract)
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 12 supports physical/field-based
+businesses: territory management, route/visit planning with GPS check-ins,
+offline mode, field service (work orders, dispatch, technician scheduling),
+and inventory & asset management. Everything prior was desk work (pipeline,
+tickets, campaigns, success plans); field work adds two genuinely new
+problems the platform hadn't faced — **location** (where is the technician,
+what order should they visit) and **disconnected operation** (a field app
+cannot wait for the network). The questions were: how do territories/work/
+assets stay composable with the event bus + RBAC + environment scoping, and
+how does offline sync resolve conflicts without a central coordinator.
+
+**Decision:**
+
+1. **Field entities are scoped rows, not code** — the ADR-015/017/021/023
+   pattern: `Territory`, `Technician`, `Visit`, `WorkOrder`, `Asset`, and
+   `InventoryItem` are Prisma models keyed by `orgId` + `environment`
+   (ADR-008), consumed by one engine (`startFieldEngine` — a ticker, like the
+   success engine) and a REST surface. Reads open (planning surface), config
+   writes admin/manager, **field-worker ops open to reps** (a technician must
+   be able to move their own visit/work order from the field), every area
+   feature-flagged (`field.territories` … `field.inventory`).
+2. **State changes are evented; statuses are derived at read** — the visit
+   lifecycle (`visit.checked_in` with GPS), work-order dispatch/complete
+   (`workorder.dispatched/completed`), asset maintenance
+   (`asset.maintenance_due/done`), and inventory moves
+   (`inventory.received/consumed/reorder_triggered`) all write `Event` rows;
+   SLA breach, maintenance-due, and low-stock are computed at read time and
+   the ticker events them once per cycle (the Phase 11 success-engine
+   pattern). Parts consumption validates stock before any deduction so a
+   failed completion never half-consumes.
+3. **Route planning is deterministic and explainable v1** — greedy
+   nearest-neighbor from the technician's last reported GPS position with
+   haversine distances, ties by `scheduledAt`. Not a real optimizer; the
+   endpoint is the slot where one lands later (same ADR-020 discipline:
+   transparent arithmetic now, better model later).
+4. **Offline sync is ONE deterministic endpoint with last-write-wins** —
+   `POST /api/field/sync` pushes the client's queued `{ entity, op, data,
+   clientTs }` operations and pulls everything newer than `since`. A change
+   applies when `clientTs` > the row's `updatedAt`; losers return as
+   `conflicts` with reasons — **never silently dropped**. LWW is chosen over
+   merge/CRDT machinery because field data is low-contention (one technician
+   owns a visit) and the trade is documented, auditable (every applied change
+   emits `<entity>.synced`), and simple for a mobile client to implement.
+
+**Consequences:**
+- (+) The field loop composes with the platform: accounts/contacts are visit
+  targets, work orders consume Phase-10-style catalog inventory, notifications
+  (kind `field`) reuse the bell, environments sandbox field routing.
+- (+) Every state change is reconstructable from the event log, and every
+  status flag (SLA/maintenance/low-stock) is derived — no drift between the
+  stored state and the displayed truth.
+- (−) Route v1 ignores travel time windows and multi-technician balancing;
+  offline sync is LWW, so a genuinely concurrent edit of the same row loses
+  one side by design (the conflict entry surfaces it, the client UX owns the
+  resolution).
+- (−) GPS is check-in-only (no continuous position streams, no geofencing)
+  and inventory is quantity-level (no per-serial bin tracking) — both are
+  documented Phase 12+ extension paths (spec §3).
+
+---
+
+## ADR-025 · Phase 13 Ecosystem = the extensibility loop as rows + one engine (marketplace installs apply into existing engines, derived partner commissions, change sets for env promotion, change-impact analysis)
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 13 makes the platform extensible: an
+app/agent marketplace, partner & channel management, and the no-code/low-code
+builder layer. The interesting architectural questions were not UI — they
+were (1) what does "installing an app" actually DO in this codebase, (2) how
+is partner commission computed without a payments ledger, and (3) how does
+schema/config change safely between environments when records already can
+(ADR-008 `env.promote`).
+
+**Decision:**
+
+1. **Marketplace entities are scoped rows; installs apply payloads into the
+   EXISTING engines** — `MarketplaceListing` (kind: app | agent | integration
+   | template) carries a `config` install payload that `installApp` applies
+   with zero marketplace-specific machinery: `config.agentTemplate` creates a
+   Phase 9 `Agent` through the same template registry the seed uses (the
+   agent then runs on the Phase 9 engine), `config.webhookEvents` creates a
+   `Webhook` (Phase 0 dispatcher). `App` rows record installed/uninstalled +
+   what was applied. This is the ADR-015/017/021/023/024 row-as-config
+   pattern applied to extensibility itself: the marketplace is data, and the
+   only code is `lib/ecosystem.ts`.
+2. **Partner commissions are derived at read, never stored** — a won
+   `PartnerDeal` computes commission = `amount × commissionRate` on read;
+   the `partner.commission_earned` event fires on the won transition for
+   audit/notifications but the number itself is always recomputed (ADR-018
+   discipline — no drift, no reconciliation step). Deal registration
+   (`opportunityId` optional) lets partners precede the CRM deal.
+3. **Change sets make the ADR-008 environment story cover CONFIG, not just
+   records** — a `ChangeSet` is a bundle of `{ entity, op, key, data }`
+   items over the config surface (fieldDef, agent, featureFlag). `diff`
+   proposes items by comparing two environments; `promote` replays them
+   (create/update/delete, per-item errors recorded, `changeset.promoted`
+   evented). Promote is deterministic and replayable — the same discipline
+   as `env.promote` but for schema/config instead of records.
+4. **Schema deletion is a governed operation, not a footgun** —
+   `fieldImpact` scans every config surface that can reference a custom
+   field (segments, workflows, agents, lead forms, reports, field
+   permissions) plus stored record values; `safeDeleteField` refuses a field
+   in use and emits `schema.field_deleted` (`via: "safe-delete"`). This
+   closes the loop on the Phase 0 custom-field registry (ADR-003): fields
+   are now safe to CREATE and safe to REMOVE.
+
+**Consequences:**
+- (+) Install is auditable end-to-end (`app.installed` + whatever the payload
+  created, e.g. `agent.created` with `source: "marketplace"`), and later
+  marketplace features (versioned installs, upgrade paths, a public
+  cross-tenant catalog) build on the same rows.
+- (+) Commissions and change sets compose with what exists: partner deals
+  can link to real opportunities, promotions reuse environments + the event
+  log, and schema safety builds directly on the FieldDef registry.
+- (−) The marketplace is org-scoped (a public cross-tenant catalog is a
+  Phase 13+ extension); install payloads are v1 (agent template + webhook
+  events — no arbitrary scripts, by design); the developer platform (SDKs,
+  serverless functions) remains a documented extension path.
 
 ---
 

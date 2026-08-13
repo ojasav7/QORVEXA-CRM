@@ -10,7 +10,8 @@ import { Router } from "express";
 import { env } from "../env";
 import { db } from "../db";
 import { asyncHandler, badRequest } from "../lib/http";
-import { createSessionCookie, SESSION_COOKIE } from "../lib/auth";
+import { SESSION_COOKIE } from "../lib/auth";
+import { issueSession } from "../lib/security";
 import { emitEvent } from "../lib/events";
 
 const router = Router();
@@ -130,13 +131,13 @@ router.get(
 
     const user = await db().user.findUnique({ where: { email } });
     if (!user || !user.active) return res.redirect(`${APP_ORIGIN}/?oauth=error=no_account`);
-    finishLogin(user, provider, oauthId, req, res);
+    await finishLogin(user, provider, oauthId, req, res);
   })
 );
 
-function finishLogin(user: { id: string; orgId: string; email: string; name: string; role: string }, provider: string, oauthId: string | null, req: any, res: any) {
+async function finishLogin(user: { id: string; orgId: string; email: string; name: string; role: string }, provider: string, oauthId: string | null, req: any, res: any) {
   const session = { id: user.id, orgId: user.orgId, email: user.email, name: user.name, role: user.role };
-  res.cookie(SESSION_COOKIE, createSessionCookie(session), {
+  res.cookie(SESSION_COOKIE, await issueSession(session, req), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

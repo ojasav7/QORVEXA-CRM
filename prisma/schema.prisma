@@ -52,7 +52,13 @@ model User {
   lastLoginAt   DateTime?
   oauthProvider String? // google | github — set when the account signed in via SSO
   oauthId       String? // the provider's stable user id (for linking)
-  createdAt     DateTime @default(now())
+  // Phase 14 — MFA (TOTP). mfaSecret is base32; only a valid code enables it.
+  mfaSecret        String?  // TOTP secret (base32) — never returned after setup
+  mfaEnabled       Boolean  @default(false)
+  mfaVerifiedAt    DateTime?
+  mfaRecoveryHashes Json?   // sha256 list of one-time recovery codes (Phase 14)
+  scimExternalId   String?  // SCIM 2.0 externalId (Phase 14 provisioning)
+  createdAt        DateTime @default(now())
 
   @@index([orgId])
   @@index([orgId, email])
@@ -1268,5 +1274,959 @@ model AgentTest {
   createdAt   DateTime @default(now())
 
   @@index([orgId, agentId, createdAt])
+}
+
+// ── Phase 10 · Revenue Cloud (Products, CPQ, Contracts, Billing) ───────────
+// The money half of the CRM (ADR-022). Like campaigns/journeys, the CPQ +
+// billing entities are config/domain rows with their own lifecycle semantics
+// (quote approval → signature → order → contract → subscription → invoice →
+// payment), while totals + MRR/ARR are DERIVED at read (never stored as
+// truth) — the Phase 6/ADR-018 discipline applied to revenue. The engine
+// (server/lib/revenue.ts) advances subscription billing + dunning on a ticker,
+// exactly like the journey engine.
+
+// The product catalog. `components` makes a product a BUNDLE: [{ productId,
+// quantity }] of component products (resolved for quote/order line prices).
+// `sku` is unique per org × env.
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  name        String
+  sku         String // unique per org × env (bundle-safe line pricing)
+  description String?
+  category    String   @default("general") // software | service | hardware | bundle | other
+  listPrice   Float    @default(0)
+  cost        Float    @default(0)
+  taxable     Boolean  @default(true)
+  components  Json     @default("[]") // [{ productId, quantity }] — bundle definition
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([orgId, environment, sku])
+  @@index([orgId, environment])
+}
+
+// Price books: named price lists with per-product prices (JSON entries,
+// SlaPolicy-style). The org's DEFAULT price book is lazily seeded; quotes
+// resolve line prices from a book (falling back to the product listPrice).
+// `entries` = [{ productId, price }]; `discounts` = [{ productId, pct }] (an
+// org-wide discount list applied at quote build time).
+model PriceBook {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  name        String
+  isDefault   Boolean  @default(false)
+  entries     Json     @default("[]") // [{ productId, price }]
+  discounts   Json     @default("[]") // [{ productId, pct }]
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, isDefault])
+}
+
+// Quote templates (blueprint CPQ item) — layout/language/header/footer for a
+// professional quote document. Quotes reference one; the template is data
+// (like SlaPolicy targets) so orgs tune the look without a deploy.
+model QuoteTemplate {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  name        String
+  layout      String   @default("standard") // standard | professional | compact
+  language    String   @default("en") // en | de | fr | es — quote doc language
+  header      String? // e.g. "Thank you for choosing Qorvexa"
+  footer      String? // e.g. "Prices valid for 30 days"
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// A CPQ QUOTE. `lines` is the priced quote content: [{ productId, productName,
+// sku, quantity, unitPrice, discountPct, lineTotal }]. Totals are computed at
+// build time AND re-derived at read (lineTotal sums must reconcile). The
+// lifecycle is the CPQ approval + e-signature flow: draft → needs_approval →
+// approved → sent → signed → won | lost | voided. `signature` is the mock
+// e-signature (ADR-014 discipline: no external e-sign provider in v1).
+model Quote {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  quoteNumber   String // per-org ref, e.g. Q-0001 (unique per org × env)
+  name          String
+  opportunityId String?  @db.ObjectId // the deal this quote serves
+  accountId     String?  @db.ObjectId
+  contactId     String?  @db.ObjectId
+  priceBookId   String?  @db.ObjectId
+  templateId    String?  @db.ObjectId // QuoteTemplate used (document style)
+  status        String   @default("draft") // draft | needs_approval | approved | sent | signed | won | lost | voided
+  lines         Json     @default("[]") // [{ productId, productName, sku, quantity, unitPrice, discountPct, lineTotal }]
+  subtotal      Float    @default(0)
+  discountTotal Float    @default(0)
+  taxTotal      Float    @default(0)
+  total         Float    @default(0)
+  currency      String   @default("USD")
+  validUntil    DateTime?
+  signature     Json     @default("{}") // { name, at, email? } — mock e-signature
+  approvals     Json     @default("[]") // [{ by, name?, role, at, decision }] — approval trail
+  createdBy     String   @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@unique([orgId, environment, quoteNumber])
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, opportunityId])
+}
+
+// An ORDER — created from a signed/approved quote (or manually). Same line
+// shape as the quote; totals re-derived at read. Lifecycle: draft → confirmed
+// → fulfilled → cancelled.
+model Order {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  orderNumber String // per-org ref, e.g. ORD-0001
+  quoteId     String?  @db.ObjectId
+  accountId   String?  @db.ObjectId
+  contactId   String?  @db.ObjectId
+  status      String   @default("draft") // draft | confirmed | fulfilled | cancelled
+  lines       Json     @default("[]") // same shape as Quote.lines
+  subtotal    Float    @default(0)
+  discountTotal Float  @default(0)
+  taxTotal    Float    @default(0)
+  total       Float    @default(0)
+  currency    String   @default("USD")
+  placedAt    DateTime?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@unique([orgId, environment, orderNumber])
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, quoteId])
+}
+
+// A CONTRACT. `clauses` holds the extracted terms (contract intelligence):
+// [{ key, label, value, source? }] — e.g. parties, term dates, renewal notice,
+// payment terms. `analyzedAt` marks when the AI analysis ran. Lifecycle:
+// draft → active → expiring → expired | terminated. `autoRenew` + renewal
+// notice drive the contract.renewal_due alert from the engine ticker.
+model Contract {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId            String   @db.ObjectId
+  environment      String   @default("production")
+  contractNumber   String // per-org ref, e.g. CTR-0001
+  name             String
+  accountId        String?  @db.ObjectId
+  quoteId          String?  @db.ObjectId
+  subscriptionId   String?  @db.ObjectId // the recurring contract line (if any)
+  status           String   @default("draft") // draft | active | expiring | expired | terminated
+  startDate        DateTime?
+  endDate          DateTime?
+  autoRenew        Boolean  @default(false)
+  renewalNoticeDays Int     @default(30)
+  clauses          Json     @default("[]") // [{ key, label, value, source? }] — extracted terms
+  analyzedAt       DateTime? // when contract intelligence last ran
+  createdBy        String   @db.ObjectId
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  @@unique([orgId, environment, contractNumber])
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, endDate])
+}
+
+// A SUBSCRIPTION — the recurring-revenue unit. `mrr` is the monthly recurring
+// revenue contribution (unitPrice × quantity ÷ periodMonths), derived at read
+// and rolled into the MRR/ARR metrics. The engine ticker advances
+// `currentPeriodEnd` and raises invoices; payment failures flip status to
+// past_due (dunning). Lifecycle: active → past_due → cancelled | expired.
+model Subscription {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId            String   @db.ObjectId
+  environment      String   @default("production")
+  accountId        String?  @db.ObjectId
+  productId        String   @db.ObjectId
+  quoteId          String?  @db.ObjectId
+  orderId          String?  @db.ObjectId
+  name             String // display, e.g. "Northwind — Retail Platform (Annual)"
+  billingPeriod    String   @default("monthly") // monthly | quarterly | annual
+  unitPrice        Float    @default(0) // per billing period
+  quantity         Int      @default(1)
+  status           String   @default("active") // active | past_due | cancelled | expired
+  startedAt        DateTime @default(now())
+  currentPeriodEnd DateTime? // next billing date — ticker advances this
+  autoRenew        Boolean  @default(true)
+  cancelledAt      DateTime?
+  createdBy        String   @db.ObjectId
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, accountId])
+  @@index([orgId, environment, currentPeriodEnd])
+}
+
+// An INVOICE — raised by the engine on subscription renewal or issued from an
+// order. Totals derived at read from `lines` (same shape as quotes).
+// `dunningAttempts` counts failed collection attempts (the dunning loop).
+// Lifecycle: draft → issued → paid → overdue | voided.
+model Invoice {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId           String   @db.ObjectId
+  environment     String   @default("production")
+  invoiceNumber   String // per-org ref, e.g. INV-0001
+  accountId       String?  @db.ObjectId
+  contactId       String?  @db.ObjectId
+  subscriptionId  String?  @db.ObjectId // renewal invoices
+  orderId         String?  @db.ObjectId // order invoices
+  lines           Json     @default("[]") // [{ productId, productName, sku, quantity, unitPrice, lineTotal }]
+  subtotal        Float    @default(0)
+  taxTotal        Float    @default(0)
+  total           Float    @default(0)
+  currency        String   @default("USD")
+  status          String   @default("draft") // draft | issued | paid | overdue | voided
+  dueDate         DateTime?
+  issuedAt        DateTime?
+  paidAt          DateTime?
+  dunningAttempts Int      @default(0)
+  createdBy       String   @db.ObjectId
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  @@unique([orgId, environment, invoiceNumber])
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, subscriptionId])
+  @@index([orgId, environment, dueDate])
+}
+
+// A PAYMENT against an invoice. `refundOf` links a refund to its original
+// payment (refunds are payments with status "refunded" + amount). Mock method
+// (ADR-014: no real PSP in v1). A succeeded payment settles its invoice
+// (invoice.paid); a failed one feeds dunning (payment.failed).
+model Payment {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  invoiceId     String   @db.ObjectId
+  accountId     String?  @db.ObjectId
+  amount        Float    @default(0)
+  method        String   @default("card") // card | bank | other (mock)
+  status        String   @default("succeeded") // succeeded | failed | refunded
+  failureReason String?
+  refundOf      String?  @db.ObjectId // when this payment is a refund of another
+  paidAt        DateTime?
+  createdBy     String   @db.ObjectId
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, invoiceId])
+  @@index([orgId, environment, status])
+}
+
+// ── Phase 11 · Customer Success, Retention & Expansion (ADR-023) ───────────
+// The "protect and grow existing revenue" phase: success/onboarding plans
+// with milestones + QBRs, product usage intelligence (feature adoption, seat
+// usage, inactivity), churn prediction v2 (explained, deterministic) +
+// expansion/upsell/cross-sell radar, NPS/CSAT/CES surveys with a feedback →
+// roadmap pipeline, and loyalty/advocacy programs (referrals, tiers,
+// rewards). Everything derives on read from live rows (ADR-018 discipline);
+// the engine (server/lib/success.ts) mirrors events into usage, runs
+// adoption/inactivity analysis, refreshes churn scores, and detects
+// expansion opportunities on a ticker + admin tick.
+
+// An ONBOARDING / SUCCESS PLAN (blueprint entity) for an account, with a
+// milestones checklist + QBR log stored as JSON (SlaPolicy/PriceBook
+// pattern). kind = onboarding | success | custom; status = draft | active |
+// at_risk | completed | archived. The account's Phase 7 health is joined at
+// read; low health flips the plan to at_risk (health-score-to-playbook
+// mapping, docs/34-customer-success-guide.md).
+model SuccessPlan {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  accountId   String?  @db.ObjectId
+  name        String
+  kind        String   @default("onboarding") // onboarding | success | custom
+  status      String   @default("draft") // draft | active | at_risk | completed | archived
+  ownerId     String?  @db.ObjectId // CSM / user responsible
+  startDate   DateTime?
+  targetDate  DateTime?
+  milestones  Json     @default("[]") // [{ id, title, dueDate?, status: open|done, completedAt? }]
+  qbrs        Json     @default("[]") // [{ id, date, title, attendees, notes }]
+  notes       String?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, accountId])
+  @@index([orgId, environment, status])
+}
+
+// PRODUCT USAGE TELEMETRY (blueprint entity) — what the customer did INSIDE
+// the product (feature used, login, api call, seat added…). Distinct from
+// BehaviorEvent (Phase 7, cross-touchpoint behavior): this is product usage
+// intelligence — feature adoption, seat usage, inactivity. Two paths: the
+// API ingest (POST /api/success/usage — the product posts telemetry) and the
+// event-bus mirror (startSuccessEngine maps system events → feature usage,
+// exactly like the Phase 7 CDP mirror).
+model UsageEvent {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  accountId   String?  @db.ObjectId
+  profileId   String?  @db.ObjectId
+  contactId   String?  @db.ObjectId
+  type        String   @default("feature_used") // feature_used | login | api_call | seat_added | …
+  feature     String   @default("general") // feature key: pipelines, email, workflows, ai, tickets, …
+  value       Float? // numeric payload (minutes, count)
+  meta        Json     @default("{}")
+  source      String   @default("api") // api | event-bus | seed
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, environment, accountId, occurredAt])
+  @@index([orgId, environment, feature, occurredAt])
+  @@index([orgId, environment, profileId])
+}
+
+// A SURVEY (blueprint entity) — NPS (0–10), CSAT (1–5), CES (1–7). Responses
+// record the score + optional comment; sentiment is derived at read
+// (transparent keyword analysis, ADR-020 discipline). Negative feedback can
+// be promoted into the ROADMAP pipeline (RoadmapItem) — the blueprint's
+// "feedback → roadmap pipeline".
+model Survey {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId           String   @db.ObjectId
+  environment     String   @default("production")
+  name            String
+  kind            String   @default("nps") // nps | csat | ces
+  question        String
+  active          Boolean  @default(true)
+  targetSegmentId String?  @db.ObjectId // Phase 1 segment audience (optional)
+  createdBy       String   @db.ObjectId
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// One survey response. `score` is validated per kind (nps 0–10, csat 1–5,
+// ces 1–7). `sentiment` is derived at read; a negative comment can be
+// promoted to a RoadmapItem (feedback → roadmap).
+model SurveyResponse {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  surveyId    String   @db.ObjectId
+  profileId   String?  @db.ObjectId
+  contactId   String?  @db.ObjectId
+  accountId   String?  @db.ObjectId
+  score       Int // nps 0-10 | csat 1-5 | ces 1-7
+  comment     String?
+  sentiment   String? // positive | neutral | negative (derived at read)
+  respondedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, environment, surveyId])
+  @@index([orgId, environment, respondedAt])
+}
+
+// The FEEDBACK → ROADMAP pipeline (blueprint) — a roadmap item can be created
+// directly (source: internal/feedback) or promoted from a survey comment
+// (source: survey + surveyResponseId). status = new | triaged | planned |
+// in_progress | shipped | declined; votes prioritize the backlog.
+model RoadmapItem {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId            String   @db.ObjectId
+  environment      String   @default("production")
+  title            String
+  description      String?
+  source           String   @default("internal") // survey | feedback | internal
+  status           String   @default("new") // new | triaged | planned | in_progress | shipped | declined
+  category         String   @default("improvement") // feature | improvement | bug | other
+  votes            Int      @default(0)
+  surveyResponseId String?  @db.ObjectId // when promoted from a survey comment
+  createdBy        String   @db.ObjectId
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  @@index([orgId, environment, status])
+}
+
+// A LOYALTY / ADVOCACY PROGRAM (blueprint entity) — config is JSON
+// (SlaPolicy/PriceBook pattern): tiers [{ key, name, minPoints, benefits }],
+// rewards [{ key, name, pointsCost, description }], pointsRules { referral:
+// 500, survey: 50, review: 100, … }.
+model LoyaltyProgram {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  name        String
+  active      Boolean  @default(true)
+  tiers       Json     @default("[]") // [{ key, name, minPoints, benefits }]
+  rewards     Json     @default("[]") // [{ key, name, pointsCost, description }]
+  pointsRules Json     @default("{}") // { referral: 500, survey: 50, review: 100 }
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// MEMBERSHIP — one row per customer per program, with a points ledger. Tier
+// is DERIVED at read from points against the program's tier bands
+// (docs/34-customer-success-guide.md loyalty rules). One member per
+// program × contact (enforced in the service layer — Mongo nulls are not
+// unique-safe).
+model LoyaltyMember {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  programId   String   @db.ObjectId
+  profileId   String?  @db.ObjectId
+  contactId   String?  @db.ObjectId
+  accountId   String?  @db.ObjectId
+  points      Int      @default(0)
+  joinedAt    DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment, programId])
+  @@index([orgId, environment, contactId])
+}
+
+// A REFERRAL (blueprint entity) — a member refers a business email.
+// Lifecycle pending → contacted → converted (points awarded to the referrer
+// per the program's pointsRules.referral) | expired. Conversion can be
+// declared manually or detected by the engine (the referred contact becomes
+// a customer).
+model ReferralRecord {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId             String   @db.ObjectId
+  environment       String   @default("production")
+  programId         String   @db.ObjectId
+  referrerContactId String?  @db.ObjectId
+  referrerProfileId String?  @db.ObjectId
+  referredEmail     String
+  referredName      String?
+  status            String   @default("pending") // pending | contacted | converted | expired
+  pointsAwarded     Int      @default(0)
+  convertedAt       DateTime?
+  createdBy         String   @db.ObjectId
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@index([orgId, environment, programId])
+  @@index([orgId, environment, status])
+}
+
+// PERSISTED CHURN PREDICTION (v2 — explained, deterministic; blueprint event
+// churn.risk_scored). The prediction is COMPUTED at read from Phase 7 health
+// + usage trend + support + billing + survey signals; an admin refresh (or
+// the engine ticker) persists one ChurnScore per account × refreshId so the
+// UI has history + deltas, and churn.risk_scored fires when the tier
+// escalates (docs/34-customer-success-guide.md churn model).
+model ChurnScore {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  accountId     String?  @db.ObjectId
+  score         Int      @default(0) // 0-100 churn probability
+  riskTier      String   @default("low") // low | medium | high | critical
+  factors       Json     @default("[]") // [{ key, label, impact, detail }] — the explanation
+  inputs        Json     @default("{}") // raw model inputs
+  refreshId     String?
+  previousScore Int?
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, environment, accountId, createdAt])
+  @@index([orgId, environment, refreshId])
+}
+
+// ── PHASE 12 · FIELD OPERATIONS (blueprint entities) ───────────────────────
+// Territory / Technician / Visit / WorkOrder / Asset / InventoryItem — the
+// physical-world loop: territories own accounts + technicians, technicians
+// run visits (GPS check-ins) and work orders (dispatch → SLA → completion),
+// assets carry warranty + maintenance schedules, inventory tracks stock with
+// reorder levels. Every row is org × environment scoped (ADR-008) and every
+// state change is evented (`visit.checked_in`, `workorder.completed`,
+// `asset.maintenance_due`, …). All logic lives in lib/field.ts (ADR-015/017
+// row-as-config pattern: the engine + routes are the only code).
+
+// A sales/service TERRITORY (blueprint entity) — a named geography that owns
+// accounts + technicians. accountIds are the assigned accounts; a manager
+// (ownerId) runs it.
+model Territory {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // ADR-008
+  name        String
+  region      String? // free-text region ("Northeast", "EMEA"…)
+  ownerId     String?  @db.ObjectId // territory manager (User)
+  accountIds  Json     @default("[]") // assigned account ids
+  active      Boolean  @default(true)
+  notes       String?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// A FIELD TECHNICIAN (blueprint entity) — a person in the field. userId links
+// a platform user; skills are a JSON list; status = available | on_route |
+// off_duty; lat/lng is the last reported GPS position (check-ins + route
+// optimization use it).
+model Technician {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  name        String
+  userId      String?  @db.ObjectId // linked platform user (optional)
+  territoryId String?  @db.ObjectId
+  phone       String?
+  skills      Json     @default("[]") // ["install", "repair", "network"]
+  status      String   @default("available") // available | on_route | off_duty
+  lat         Float?
+  lng         Float?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, territoryId])
+}
+
+// A planned field VISIT (blueprint entity) — a technician visits an account
+// (or contact) at a scheduled time. status = planned | in_transit |
+// checked_in | completed | cancelled; a GPS check-in records checkInAt +
+// checkInLat/Lng (visit.checked_in). Route planning reorders planned visits
+// by proximity to the technician's last position.
+model Visit {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  environment String   @default("production")
+  territoryId String?  @db.ObjectId
+  accountId   String?  @db.ObjectId
+  contactId   String?  @db.ObjectId
+  technicianId String? @db.ObjectId
+  title       String
+  scheduledAt DateTime
+  status      String   @default("planned") // planned | in_transit | checked_in | completed | cancelled
+  checkInAt   DateTime?
+  checkInLat  Float?
+  checkInLng  Float?
+  notes       String?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, technicianId])
+  @@index([orgId, environment, scheduledAt])
+}
+
+// A field-service WORK ORDER (blueprint entity) — a job for a technician.
+// status = open | dispatched | in_progress | on_hold | completed | cancelled;
+// slaDueAt is the field-service SLA deadline (a breach sweep fires
+// workorder.sla_breached + notifies admins). completedAt + partsUsed (JSON
+// [{sku, qty}]) drive inventory consumption.
+model WorkOrder {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  environment  String   @default("production")
+  territoryId  String?  @db.ObjectId
+  accountId    String?  @db.ObjectId
+  assetId      String?  @db.ObjectId // the asset being serviced
+  technicianId String? @db.ObjectId
+  title        String
+  description  String?
+  priority     String   @default("medium") // low | medium | high | critical
+  status       String   @default("open") // open | dispatched | in_progress | on_hold | completed | cancelled
+  slaDueAt     DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  partsUsed    Json     @default("[]") // [{ sku, qty }] — inventory consumption
+  notes        String?
+  createdBy    String   @db.ObjectId
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, technicianId])
+}
+
+// A customer ASSET (blueprint entity) — a serialized unit under warranty with
+// a maintenance schedule. status = active | maintenance | retired;
+// maintenance is due when lastMaintenanceAt + maintenanceIntervalDays < now
+// (the engine ticker fires asset.maintenance_due once per cycle).
+model Asset {
+  id                      String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId                   String   @db.ObjectId
+  environment             String   @default("production")
+  accountId               String?  @db.ObjectId
+  name                    String
+  serialNumber            String?
+  type                    String? // hardware | software | vehicle | …
+  status                  String   @default("active") // active | maintenance | retired
+  warrantyUntil           DateTime?
+  lastMaintenanceAt       DateTime?
+  maintenanceIntervalDays Int?
+  location                String?
+  notes                   String?
+  createdBy               String   @db.ObjectId
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, accountId])
+}
+
+// An INVENTORY item (blueprint entity) — tracked stock with a reorder level.
+// quantityOnHand moves via receive/consume (work-order partsUsed deducts);
+// at/below reorderLevel the ticker fires inventory.reorder_triggered once
+// per cycle.
+model InventoryItem {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  sku            String
+  name           String
+  quantityOnHand Int      @default(0)
+  reorderLevel   Int      @default(0)
+  unitCost       Float    @default(0)
+  location       String? // warehouse / bin
+  notes          String?
+  createdBy      String   @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// ── PHASE 13 · ECOSYSTEM (blueprint entities) ──────────────────────────────
+// App / MarketplaceListing / PartnerAccount / ChangeSet — the extensibility
+// loop: a catalog of pre-built apps/agents/integrations (MarketplaceListing)
+// that an org installs (App, app.installed), partners with deal registration
+// + commissions (PartnerAccount), and config promotion between environments
+// via change sets (ChangeSet, changeset.promoted) — plus the schema
+// change-impact analysis surface (docs/43-schema-change-safety.md). Every
+// row is org × environment scoped (ADR-008) and every lifecycle event is
+// evented. All logic lives in lib/ecosystem.ts (ADR-015/017 row-as-config).
+
+// A MARKETPLACE LISTING (blueprint entity) — a published, installable
+// pre-built app/agent/integration/template. The catalog is platform-seeded
+// (seed.ts) and admin-extensible; installing creates an `App` row and applies
+// the listing's `config` (agent templates via the Phase 9 engine, webhooks,
+// feature-flag hints, …).
+model MarketplaceListing {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  slug        String // stable id, e.g. "lead-agent"
+  name        String
+  kind        String   @default("app") // app | agent | integration | template
+  description String?
+  publisher   String
+  version     String   @default("1.0.0")
+  icon        String?
+  config      Json     @default("{}") // install payload: { agentTemplate?, webhookEvents?, flags? }
+  active      Boolean  @default(true)
+  installCount Int     @default(0)
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@unique([orgId, environment, slug])
+}
+
+// An installed APP (blueprint entity) — one row per org × environment per
+// listing the org has installed. `config` holds the runtime settings the
+// install applied (installed agent ids, webhook id, flags). Uninstall
+// deactivates the row (status: uninstalled) rather than deleting, keeping
+// the audit trail.
+model App {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  listingId   String?  @db.ObjectId // the marketplace listing it came from (null for custom apps)
+  slug        String
+  name        String
+  kind        String   @default("app") // app | agent | integration | template
+  status      String   @default("installed") // installed | uninstalled
+  config      Json     @default("{}")
+  installedBy String   @db.ObjectId
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  uninstalledAt DateTime?
+
+  @@index([orgId, environment])
+  @@unique([orgId, environment, slug])
+}
+
+// A PARTNER ACCOUNT (blueprint entity) — a reseller / referral / technology
+// partner. Deal registration (co-selling) tracks opportunities a partner
+// helped source; commissions are derived at read from won registered deals ×
+// the partner's rate. Partner lifecycle + registrations are evented
+// (`partner.deal_registered`, `partner.commission_earned`).
+model PartnerAccount {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId         String   @db.ObjectId
+  environment   String   @default("production")
+  name          String
+  type          String   @default("reseller") // reseller | referral | technology | consultant
+  contactName   String?
+  email         String?
+  phone         String?
+  commissionRate Float   @default(0.1) // 0.10 = 10% of won deal amount
+  status        String   @default("active") // active | inactive
+  notes         String?
+  createdBy     String   @db.ObjectId
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// A registered partner DEAL (blueprint entity) — a partner-sourced opportunity.
+// status = registered | approved | won | lost; commission = amount × rate when
+// won (derived at read; the event fires on the status change to won).
+model PartnerDeal {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  partnerId   String   @db.ObjectId
+  opportunityId String? @db.ObjectId // linked deal (optional — partner deals can precede the CRM deal)
+  name        String
+  amount      Float    @default(0)
+  status      String   @default("registered") // registered | approved | won | lost
+  registeredAt DateTime @default(now())
+  wonAt       DateTime?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, partnerId])
+}
+
+// A CHANGE SET (blueprint entity) — a bundle of configuration/schema changes
+// (FieldDef rows, agents, feature flags, …) captured in one environment and
+// promotable to another (dev → staging → prod). Each item is
+// `{ entity, op: create|update|delete, key, data }`; promote replays the
+// items in the target environment and records the result. Emits
+// `changeset.promoted` (blueprint event).
+model ChangeSet {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production") // the source environment
+  name        String
+  description String?
+  items       Json     @default("[]") // [{ entity, op, key, data }]
+  status      String   @default("draft") // draft | promoted | failed
+  fromEnv     String?
+  toEnv       String?
+  promotedBy  String?
+  promotedAt  DateTime?
+  error       String?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 14 — Enterprise Security, Compliance & Governance
+// (spec docs/44-spec-phase14.md, ADR-026)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// DB-backed sessions — the Phase 14 upgrade from signed cookies. Every login
+// (password, SSO) issues a row; the cookie payload embeds the session id and
+// loadSession checks the row (revoked/expired). Device management = these rows.
+model SecuritySession {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId      String    @db.ObjectId
+  userId     String    @db.ObjectId
+  device     String? // browser / OS label (user-agent)
+  ip         String? // the IP the session was issued from
+  location   String? // derived label (e.g. "Local network" or geo guess)
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  @@index([orgId, userId])
+  @@index([orgId, createdAt])
+}
+
+// Security alerts — the blueprint entity. Raised by the engine + policy
+// enforcement (threats, MFA gaps, breached SLAs) and surface in the UI.
+model SecurityAlert {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  severity       String   @default("medium") // info | low | medium | high | critical
+  category       String   // auth | mfa | session | ip | scim | consent | retention | status | encryption
+  title          String
+  message        String
+  details        Json     @default("{}")
+  acknowledgedAt DateTime?
+  createdBy      String   @default("system")
+  createdAt      DateTime @default(now())
+
+  @@index([orgId, environment, createdAt])
+}
+
+// Consent records — the blueprint entity. Purposes: marketing / analytics /
+// processing / communications. Every transition emits consent.updated.
+model ConsentRecord {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  contactId   String?  @db.ObjectId
+  contactEmail String? // denormalized for subject lookup + DSR resolution
+  purpose     String // marketing | analytics | processing | communications
+  status      String   @default("pending") // granted | withdrawn | pending
+  source      String   @default("manual") // form | portal | dsr | api | manual
+  grantedAt   DateTime?
+  withdrawnAt DateTime?
+  expiresAt   DateTime?
+  meta        Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, contactId])
+  @@index([orgId, contactEmail])
+}
+
+// Data subject requests (GDPR/CCPA) — access / export / delete / rectify.
+model DataSubjectRequest {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  type           String // access | export | delete | rectify
+  status         String   @default("open") // open | processing | completed | rejected
+  requesterEmail String
+  contactId      String?  @db.ObjectId
+  contactEmail   String?
+  submittedAt    DateTime @default(now())
+  completedAt    DateTime?
+  notes          String?
+  meta           Json     @default("{}")
+  createdBy      String?  @db.ObjectId
+
+  @@index([orgId, status])
+}
+
+// Retention policies — the blueprint entity. A scan (engine ticker + manual
+// run) applies older-than rules: delete records or anonymize their PII.
+model RetentionPolicy {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  environment  String   @default("production")
+  name         String
+  entity       String // contact | lead | account | opportunity | ticket | call | meeting
+  olderThanDays Int
+  action       String   @default("delete") // delete | anonymize
+  status       String   @default("active") // active | paused
+  lastRunAt    DateTime?
+  lastProcessed Int      @default(0)
+  createdBy    String   @db.ObjectId
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// Vendor / sub-processor transparency — the 🆕 blueprint item.
+model SubProcessor {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId        String   @db.ObjectId
+  name         String
+  purpose      String
+  region       String
+  dataCategories Json   @default("[]")
+  link         String?
+  status       String   @default("active") // active | retired | pending
+  updatedAt    DateTime @default(now())
+
+  @@index([orgId])
+}
+
+// Status page — admin-managed incidents (public view optional).
+model StatusIncident {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  component   String   @default("api") // api | webhooks | email | app
+  title       String
+  severity    String   @default("minor") // minor | major | critical
+  status      String   @default("investigating") // investigating | identified | monitoring | resolved
+  message     String
+  startedAt   DateTime @default(now())
+  resolvedAt  DateTime?
+  updates     Json     @default("[]")
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId, status])
+}
+
+// Uptime monitor ticks — the status engine pings service components and
+// records up/degraded/down so the dashboard derives real uptime %.
+model UptimeEvent {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  component   String   @default("api")
+  status      String   @default("up") // up | degraded | down
+  latencyMs   Int?
+  message     String?
+  checkedAt   DateTime @default(now())
+
+  @@index([orgId, component, checkedAt])
+}
+
+// SCIM 2.0 groups — provisioning groups whose members map to org users
+// (displayName in admin | manager | rep sets each member's role).
+model ScimGroup {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  externalId  String   @unique
+  displayName String
+  role        String // admin | manager | rep — applied to members
+  memberIds   Json     @default("[]") // user ids
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  @@index([orgId])
+}
+
+// i18n — org translation catalog + localization QA (translation completeness).
+model TranslationEntry {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  locale      String   @default("en")
+  key         String
+  source      String   @default("app") // app | custom
+  value       String
+  status      String   @default("translated") // translated | missing | untranslated
+  updatedAt   DateTime @default(now())
+
+  @@unique([orgId, locale, key])
 }
 

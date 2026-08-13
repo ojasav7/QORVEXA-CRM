@@ -37,6 +37,11 @@ import CustomersPage from "./pages/CustomersPage";
 import PortabilityPage from "./pages/PortabilityPage";
 import CopilotPage from "./pages/CopilotPage";
 import ModelsPage from "./pages/ModelsPage";
+import AgentsPage from "./pages/AgentsPage";
+import RevenuePage from "./pages/RevenuePage";
+import SuccessPage from "./pages/SuccessPage";
+import FieldPage from "./pages/FieldPage";
+import EcosystemPage from "./pages/EcosystemPage";
 
 export type FeatureState = {
   enabled: boolean;
@@ -160,6 +165,11 @@ export default function App() {
           <Route path="portability" element={<PortabilityPage />} />
           <Route path="copilot" element={<CopilotPage />} />
           <Route path="models" element={<ModelsPage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="revenue" element={<RevenuePage />} />
+          <Route path="success" element={<SuccessPage />} />
+          <Route path="field" element={<FieldPage />} />
+          <Route path="ecosystem" element={<EcosystemPage />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

@@ -17,6 +17,8 @@ import { refreshHealth } from "./lib/health";
 import { ensureDefaultModels, saveInsight, scoreLead, summarizeRecord } from "./lib/ai";
 // Phase 9 · AI Agent Platform
 import { runAgent } from "./lib/agents";
+// Phase 11 · Customer Success
+import { addSurveyResponse, createProgram, enrollMember } from "./lib/success";
 
 const ORG_EMAIL = "admin@qorvexa.dev";
 const ORG_NAME = "Qorvexa Demo Inc";
@@ -790,6 +792,556 @@ async function main() {
   const agentCount = await p.agent.count({ where: { orgId, environment: "production" } });
   const agentRunCount = await p.agentRun.count({ where: { orgId, environment: "production" } });
   console.log(`  Agents: ${agentCount} pre-built agents seeded (Lead/Sales/Service/Renewal), ${agentRunCount} demo run(s)`);
+
+  // ── Phase 10 · Revenue Cloud (products, CPQ, contracts, billing) ─────────
+  // Product catalog (idempotent by sku) — a few software/services + one
+  // BUNDLE (Starter + Support expanded at quote build time).
+  const productSeeds = [
+    { name: "Qorvexa Platform — Starter", sku: "QX-STARTER", category: "software", listPrice: 600, cost: 40, description: "Up to 10 seats" },
+    { name: "Qorvexa Platform — Growth", sku: "QX-GROWTH", category: "software", listPrice: 2_000, cost: 120, description: "Up to 50 seats" },
+    { name: "Qorvexa Platform — Enterprise", sku: "QX-ENT", category: "software", listPrice: 4_000, cost: 240, description: "Unlimited seats + SSO" },
+    { name: "Implementation Services", sku: "QX-IMPL", category: "service", listPrice: 12_000, cost: 3_000, description: "Onboarding + data migration" },
+    { name: "Premium Support", sku: "QX-SUPPORT", category: "service", listPrice: 1_200, cost: 200, description: "24/7 priority support" },
+    { name: "Security Compliance Pack", sku: "QX-SEC", category: "software", listPrice: 800, cost: 60, description: "SOC2 + HIPAA modules" },
+  ];
+  const productIds: Record<string, string> = {};
+  for (const s of productSeeds) {
+    let product = await p.product.findFirst({ where: { orgId, environment: "production", sku: s.sku } });
+    if (!product) {
+      product = await p.product.create({ data: { orgId, environment: "production", ...s, taxable: true, components: [], active: true } });
+    }
+    productIds[s.sku] = product.id;
+  }
+  const starterBundle = await p.product.findFirst({ where: { orgId, environment: "production", sku: "QX-BUNDLE-STARTER" } });
+  if (!starterBundle) {
+    await p.product.create({
+      data: {
+        orgId, environment: "production", name: "Starter Bundle (Platform + Support)", sku: "QX-BUNDLE-STARTER",
+        category: "bundle", listPrice: 1_700, cost: 240, description: "Starter platform + premium support", taxable: true,
+        components: [{ productId: productIds["QX-STARTER"], quantity: 1 }, { productId: productIds["QX-SUPPORT"], quantity: 1 }], active: true,
+      },
+    });
+  }
+  // Price books: the default "Standard" book is created HERE (the engine's
+  // lazy ensureDefaultPriceBook only fires on first quote build — the seed
+  // must not depend on it) with entries + one discount (Growth at 10%), plus
+  // one secondary book for enterprise deals.
+  const standardBook = await p.priceBook.findFirst({ where: { orgId, environment: "production", isDefault: true } });
+  const standardEntries = [{ productId: productIds["QX-STARTER"], price: 600 }, { productId: productIds["QX-GROWTH"], price: 2_000 }, { productId: productIds["QX-ENT"], price: 4_000 }];
+  if (standardBook) {
+    const entries = (standardBook.entries ?? []) as { productId: string; price: number }[];
+    if (!entries.length) {
+      await p.priceBook.update({
+        where: { id: standardBook.id },
+        data: { entries: standardEntries, discounts: [{ productId: productIds["QX-GROWTH"], pct: 10 }] },
+      });
+    }
+  } else {
+    await p.priceBook.create({
+      data: { orgId, environment: "production", name: "Standard", isDefault: true, active: true, entries: standardEntries, discounts: [{ productId: productIds["QX-GROWTH"], pct: 10 }] },
+    });
+  }
+  const entBook = await p.priceBook.findFirst({ where: { orgId, environment: "production", name: "Enterprise 2026" } });
+  if (!entBook) {
+    await p.priceBook.create({
+      data: {
+        orgId, environment: "production", name: "Enterprise 2026", isDefault: false, active: true,
+        entries: [{ productId: productIds["QX-ENT"], price: 3_800 }, { productId: productIds["QX-SEC"], price: 750 }], discounts: [],
+      },
+    });
+  }
+  // Quote template
+  const tpl = await p.quoteTemplate.findFirst({ where: { orgId, environment: "production", name: "Standard Proposal" } });
+  if (!tpl) {
+    await p.quoteTemplate.create({ data: { orgId, environment: "production", name: "Standard Proposal", layout: "professional", language: "en", header: "Thank you for choosing Qorvexa", footer: "Prices valid for 30 days. Annual plans billed yearly.", active: true } });
+  }
+  // Contracts + subscriptions + invoices so the Revenue page has live data.
+  const northwind = accounts["Northwind Traders"];
+  const globex = accounts["Globex Corporation"];
+  const now = new Date();
+  const contract = await p.contract.findFirst({ where: { orgId, environment: "production", name: "Northwind — Platform Agreement" } });
+  if (!contract) {
+    await p.contract.create({
+      data: {
+        orgId, environment: "production", contractNumber: "CTR-0001", name: "Northwind — Platform Agreement",
+        accountId: northwind, status: "active", startDate: new Date(now.getTime() - 90 * 86_400_000),
+        endDate: new Date(now.getTime() + 275 * 86_400_000), autoRenew: true, renewalNoticeDays: 60,
+        clauses: [
+          { key: "party_1", label: "Party 1", value: "Qorvexa Demo Inc", source: "between clause" },
+          { key: "party_2", label: "Party 2", value: "Northwind Traders", source: "between clause" },
+          { key: "effective_date", label: "Effective date", value: now.toISOString().slice(0, 10), source: "effective date clause" },
+          { key: "end_date", label: "End date", value: new Date(now.getTime() + 275 * 86_400_000).toISOString().slice(0, 10), source: "end date clause" },
+          { key: "auto_renew", label: "Auto-renewal", value: "Yes (60 day notice)", source: "auto-renew clause" },
+          { key: "payment_terms", label: "Payment terms", value: "Net-30", source: "net 30 clause" },
+        ],
+        analyzedAt: new Date(), createdBy: admin.id,
+      },
+    });
+  }
+  const nwSub = await p.subscription.findFirst({ where: { orgId, environment: "production", name: "Northwind — Platform (Monthly)" } });
+  if (!nwSub) {
+    await p.subscription.create({
+      data: {
+        orgId, environment: "production", accountId: northwind, productId: productIds["QX-ENT"], name: "Northwind — Platform (Monthly)",
+        billingPeriod: "monthly", unitPrice: 4_000, quantity: 1, status: "active", startedAt: new Date(now.getTime() - 90 * 86_400_000),
+        currentPeriodEnd: new Date(now.getTime() + 25 * 86_400_000), autoRenew: true, createdBy: admin.id,
+      },
+    });
+  }
+  const gxSub = await p.subscription.findFirst({ where: { orgId, environment: "production", name: "Globex — Growth (Annual)" } });
+  if (!gxSub) {
+    await p.subscription.create({
+      data: {
+        orgId, environment: "production", accountId: globex, productId: productIds["QX-GROWTH"], name: "Globex — Growth (Annual)",
+        billingPeriod: "annual", unitPrice: 24_000, quantity: 1, status: "active", startedAt: new Date(now.getTime() - 30 * 86_400_000),
+        currentPeriodEnd: new Date(now.getTime() + 335 * 86_400_000), autoRenew: true, createdBy: admin.id,
+      },
+    });
+  }
+  // One PAID invoice (Northwind's last cycle) + one ISSUED (Globex annual renewal due soon).
+  let paidInv = await p.invoice.findFirst({ where: { orgId, environment: "production", invoiceNumber: "INV-0001" } });
+  if (!paidInv) {
+    paidInv = await p.invoice.create({
+      data: {
+        orgId, environment: "production", invoiceNumber: "INV-0001", accountId: northwind, subscriptionId: nwSub?.id ?? null,
+        lines: [{ productId: productIds["QX-ENT"], productName: "Qorvexa Platform — Enterprise", sku: "QX-ENT", quantity: 1, unitPrice: 4_000, lineTotal: 4_000 }],
+        subtotal: 4_000, taxTotal: 320, total: 4_320, currency: "USD", status: "paid", dueDate: new Date(now.getTime() - 10 * 86_400_000),
+        issuedAt: new Date(now.getTime() - 24 * 86_400_000), paidAt: new Date(now.getTime() - 8 * 86_400_000), createdBy: admin.id,
+      },
+    });
+  }
+  const paidPayment = await p.payment.findFirst({ where: { orgId, environment: "production", invoiceId: paidInv.id } });
+  if (!paidPayment) {
+    await p.payment.create({
+      data: { orgId, environment: "production", invoiceId: paidInv.id, accountId: northwind, amount: 4_320, method: "card", status: "succeeded", paidAt: paidInv.paidAt, createdBy: admin.id },
+    });
+  }
+  const issuedInv = await p.invoice.findFirst({ where: { orgId, environment: "production", invoiceNumber: "INV-0002" } });
+  if (!issuedInv) {
+    await p.invoice.create({
+      data: {
+        orgId, environment: "production", invoiceNumber: "INV-0002", accountId: globex, subscriptionId: gxSub?.id ?? null,
+        lines: [{ productId: productIds["QX-GROWTH"], productName: "Qorvexa Platform — Growth", sku: "QX-GROWTH", quantity: 1, unitPrice: 24_000, lineTotal: 24_000 }],
+        subtotal: 24_000, taxTotal: 1_920, total: 25_920, currency: "USD", status: "issued", dueDate: new Date(now.getTime() + 10 * 86_400_000),
+        issuedAt: new Date(now.getTime() - 2 * 86_400_000), createdBy: admin.id,
+      },
+    });
+  }
+  const productCount = await p.product.count({ where: { orgId, environment: "production" } });
+  const subCount = await p.subscription.count({ where: { orgId, environment: "production" } });
+  const invCount = await p.invoice.count({ where: { orgId, environment: "production" } });
+  console.log(`  Revenue: ${productCount} products (incl. 1 bundle), price books + quote templates, ${subCount} subscription(s), ${invCount} invoice(s) seeded`);
+
+  // ── Phase 11 · Customer Success, Retention & Expansion ─────────────────
+  // Success plans (with milestones + QBRs) for the key accounts, usage
+  // telemetry (feature adoption incl. one declining account), NPS/CSAT
+  // surveys + responses (incl. negative feedback auto-promoted to the
+  // roadmap), a loyalty program with members + referrals, and a persisted
+  // churn snapshot so the Success page has data on first login.
+  const nowMs = Date.now();
+
+  // Success plans
+  const nwPlan = await p.successPlan.findFirst({ where: { orgId, environment: "production", name: "Northwind — Onboarding" } });
+  if (!nwPlan) {
+    await p.successPlan.create({
+      data: {
+        orgId, environment: "production", accountId: northwind, name: "Northwind — Onboarding", kind: "onboarding",
+        status: "active", ownerId: leo.id, startDate: new Date(nowMs - 45 * 86_400_000), targetDate: new Date(nowMs + 20 * 86_400_000),
+        milestones: [
+          { id: "m1", title: "Kickoff call with Elena", dueDate: new Date(nowMs - 40 * 86_400_000).toISOString(), status: "done", completedAt: new Date(nowMs - 38 * 86_400_000).toISOString() },
+          { id: "m2", title: "Import contacts + pipeline", dueDate: new Date(nowMs - 20 * 86_400_000).toISOString(), status: "done", completedAt: new Date(nowMs - 18 * 86_400_000).toISOString() },
+          { id: "m3", title: "Enable workflows + automations", dueDate: new Date(nowMs + 5 * 86_400_000).toISOString(), status: "open", completedAt: null },
+          { id: "m4", title: "Train the sales team", dueDate: new Date(nowMs + 15 * 86_400_000).toISOString(), status: "open", completedAt: null },
+        ],
+        qbrs: [{ id: "q1", title: "30-day check-in", date: new Date(nowMs - 15 * 86_400_000).toISOString(), attendees: ["Ava Morgan", "Elena Rodriguez"], notes: "Usage strong; wants security review before expansion." }],
+        notes: "Expansion candidate — Q3.", createdBy: admin.id,
+      },
+    });
+  }
+  const gxPlan = await p.successPlan.findFirst({ where: { orgId, environment: "production", name: "Globex — Success Plan" } });
+  if (!gxPlan) {
+    await p.successPlan.create({
+      data: {
+        orgId, environment: "production", accountId: globex, name: "Globex — Success Plan", kind: "success",
+        status: "active", ownerId: priya.id, startDate: new Date(nowMs - 60 * 86_400_000), targetDate: new Date(nowMs + 90 * 86_400_000),
+        milestones: [
+          { id: "g1", title: "Adopt the journeys module", dueDate: new Date(nowMs - 10 * 86_400_000).toISOString(), status: "open", completedAt: null },
+          { id: "g2", title: "QBR with Marcus", dueDate: new Date(nowMs + 5 * 86_400_000).toISOString(), status: "open", completedAt: null },
+        ],
+        qbrs: [], notes: "Usage declining — watch closely.", createdBy: admin.id,
+      },
+    });
+  }
+
+  // Usage telemetry: Northwind healthy across features, Globex declining
+  // (adoption-drop demo), Umbrella inactive, Initech moderate.
+  if (!(await p.usageEvent.findFirst({ where: { orgId, source: "seed" } }))) {
+    const seedUsage = [
+      // Northwind — heavy, healthy (last 10 days)
+      { account: northwind, contact: elenaContact?.id, feature: "pipelines", daysAgo: 1 },
+      { account: northwind, contact: elenaContact?.id, feature: "email", daysAgo: 2 },
+      { account: northwind, contact: elenaContact?.id, feature: "workflows", daysAgo: 3 },
+      { account: northwind, contact: elenaContact?.id, feature: "tickets", daysAgo: 4 },
+      { account: northwind, contact: elenaContact?.id, feature: "analytics", daysAgo: 6 },
+      { account: northwind, contact: elenaContact?.id, feature: "meetings", daysAgo: 8 },
+      // Globex — declining: only 1 feature recently vs 4 in the prior window
+      { account: globex, contact: marcusContact?.id, feature: "email", daysAgo: 2 },
+      { account: globex, contact: marcusContact?.id, feature: "pipelines", daysAgo: 45 },
+      { account: globex, contact: marcusContact?.id, feature: "analytics", daysAgo: 40 },
+      { account: globex, contact: marcusContact?.id, feature: "workflows", daysAgo: 35 },
+      // Umbrella — inactive (last event 60+ days ago)
+      { account: accounts["Umbrella Labs"], contact: undefined, feature: "pipelines", daysAgo: 70 },
+      { account: accounts["Umbrella Labs"], contact: undefined, feature: "email", daysAgo: 65 },
+      // Initech — moderate, steady
+      { account: accounts["Initech"], contact: sarahContact?.id, feature: "pipelines", daysAgo: 5 },
+      { account: accounts["Initech"], contact: sarahContact?.id, feature: "email", daysAgo: 12 },
+      { account: accounts["Initech"], contact: sarahContact?.id, feature: "tickets", daysAgo: 20 },
+    ];
+    for (const u of seedUsage) {
+      await p.usageEvent.create({
+        data: {
+          orgId, environment: "production", accountId: u.account, contactId: u.contact ?? null,
+          type: "feature_used", feature: u.feature, source: "seed",
+          occurredAt: new Date(nowMs - u.daysAgo * 86_400_000),
+        },
+      });
+    }
+  }
+
+  // Surveys + responses (feedback → roadmap).
+  let npsSurvey: any = await p.survey.findFirst({ where: { orgId, environment: "production", name: "Q3 NPS pulse" } });
+  if (!npsSurvey) {
+    npsSurvey = await p.survey.create({
+      data: { orgId, environment: "production", name: "Q3 NPS pulse", kind: "nps", question: "How likely are you to recommend QORVEXA?", active: true, createdBy: admin.id },
+    });
+  }
+  if (!(await p.surveyResponse.findFirst({ where: { orgId, environment: "production", surveyId: npsSurvey.id } }))) {
+    await addSurveyResponse(orgId, "production", { surveyId: npsSurvey.id, score: 9, comment: "Great product, easy to adopt", contactId: elenaContact?.id ?? null, accountId: northwind }, { id: admin.id });
+    await addSurveyResponse(orgId, "production", { surveyId: npsSurvey.id, score: 7, contactId: marcusContact?.id ?? null, accountId: globex }, { id: admin.id });
+    await addSurveyResponse(orgId, "production", { surveyId: npsSurvey.id, score: 3, comment: "The bulk edit is broken and support is slow", contactId: sarahContact?.id ?? null, accountId: accounts["Initech"] }, { id: admin.id });
+  }
+  const csatSurvey = await p.survey.findFirst({ where: { orgId, environment: "production", name: "Support CSAT" } });
+  if (!csatSurvey) {
+    await p.survey.create({
+      data: { orgId, environment: "production", name: "Support CSAT", kind: "csat", question: "How satisfied were you with our support?", active: true, createdBy: admin.id },
+    });
+  }
+
+  // Loyalty program (Qorvexa Advocates) + members + referrals.
+  let program: any = await p.loyaltyProgram.findFirst({ where: { orgId, environment: "production", name: "Qorvexa Advocates" } });
+  if (!program) {
+    program = await createProgram(orgId, "production", { name: "Qorvexa Advocates" }, { id: admin.id });
+  }
+  if (elenaContact && !(await p.loyaltyMember.findFirst({ where: { orgId, environment: "production", programId: program.id, contactId: elenaContact.id } }))) {
+    const member = await enrollMember(orgId, "production", program.id, { contactId: elenaContact.id }, { id: admin.id });
+    await p.loyaltyMember.update({ where: { id: member.id }, data: { points: 1600 } }); // gold tier
+  }
+  if (!(await p.referralRecord.findFirst({ where: { orgId, environment: "production", referredEmail: "hana@northwind.example" } }))) {
+    await p.referralRecord.create({
+      data: {
+        orgId, environment: "production", programId: program.id, referrerContactId: elenaContact?.id ?? null,
+        referredEmail: "hana@northwind.example", referredName: "Hana Tanaka", status: "converted",
+        pointsAwarded: 500, convertedAt: new Date(nowMs - 10 * 86_400_000), createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.referralRecord.findFirst({ where: { orgId, environment: "production", referredEmail: "oliver@acmecorp.example" } }))) {
+    await p.referralRecord.create({
+      data: {
+        orgId, environment: "production", programId: program.id, referrerContactId: marcusContact?.id ?? null,
+        referredEmail: "oliver@acmecorp.example", referredName: "Oliver Stone", status: "pending", createdBy: admin.id,
+      },
+    });
+  }
+
+  // A churn snapshot so the Churn tab has history on first login.
+  if (!(await p.churnScore.findFirst({ where: { orgId, environment: "production" } }))) {
+    const { refreshChurn } = await import("./lib/success");
+    await refreshChurn(orgId, "production", admin.id);
+  }
+
+  const planCount = await p.successPlan.count({ where: { orgId, environment: "production" } });
+  const usageCount = await p.usageEvent.count({ where: { orgId, environment: "production" } });
+  const surveyCount = await p.survey.count({ where: { orgId, environment: "production" } });
+  console.log(`  Success: ${planCount} plan(s), ${usageCount} usage event(s), ${surveyCount} survey(s), loyalty program + ${program?.name ?? ""} members, churn snapshots seeded`);
+
+  // ── Phase 12 · Field Operations ────────────────────────────────────────
+  // Territories (with assigned accounts), technicians (with skills + last
+  // GPS fix), visits (one checked in with GPS, one planned), work orders
+  // (one open with a near-term SLA, one completed with parts), assets (one
+  // maintenance-due), and inventory (one at/below reorder level) so the
+  // Field page has data on first login.
+  const h = 3_600_000;
+
+  // Territories
+  const northeast = await p.territory.findFirst({ where: { orgId, environment: "production", name: "Northeast" } });
+  let northeastId: string;
+  if (northeast) {
+    northeastId = northeast.id;
+  } else {
+    const t = await p.territory.create({
+      data: {
+        orgId, environment: "production", name: "Northeast", region: "NY / NJ / CT", ownerId: priya.id,
+        accountIds: [accounts["Northwind Traders"], accounts["Initech"]], active: true,
+        notes: "Enterprise accounts — dispatch priority.", createdBy: admin.id,
+      },
+    });
+    northeastId = t.id;
+  }
+  const west = await p.territory.findFirst({ where: { orgId, environment: "production", name: "West" } });
+  let westId: string;
+  if (west) {
+    westId = west.id;
+  } else {
+    const t = await p.territory.create({
+      data: {
+        orgId, environment: "production", name: "West", region: "CA / WA", ownerId: leo.id,
+        accountIds: [accounts["Globex Corporation"]], active: true, notes: "Mid-market west.", createdBy: admin.id,
+      },
+    });
+    westId = t.id;
+  }
+
+  // Technicians — one per territory + a float. Sam works out of the Northeast.
+  const sam = await p.technician.findFirst({ where: { orgId, environment: "production", name: "Sam Rivera" } });
+  let samId: string;
+  if (sam) {
+    samId = sam.id;
+  } else {
+    const t = await p.technician.create({
+      data: {
+        orgId, environment: "production", name: "Sam Rivera", phone: "+1 212 555 7001",
+        territoryId: northeastId, skills: ["install", "repair"], status: "on_route", lat: 40.758, lng: -73.985,
+        createdBy: admin.id,
+      },
+    });
+    samId = t.id;
+  }
+  const jordan = await p.technician.findFirst({ where: { orgId, environment: "production", name: "Jordan Lee" } });
+  let jordanId: string;
+  if (jordan) {
+    jordanId = jordan.id;
+  } else {
+    const t = await p.technician.create({
+      data: {
+        orgId, environment: "production", name: "Jordan Lee", phone: "+1 415 555 7002",
+        territoryId: westId, skills: ["network", "audit"], status: "available", lat: 37.7749, lng: -122.4194,
+        createdBy: admin.id,
+      },
+    });
+    jordanId = t.id;
+  }
+
+  // Visits — one checked in with GPS (Northwind), one planned (Globex).
+  if (!(await p.visit.findFirst({ where: { orgId, environment: "production", title: "Northwind — quarterly hardware review" } }))) {
+    await p.visit.create({
+      data: {
+        orgId, environment: "production", territoryId: northeastId, accountId: accounts["Northwind Traders"],
+        technicianId: samId, title: "Northwind — quarterly hardware review",
+        scheduledAt: new Date(nowMs - 2 * h), status: "checked_in",
+        checkInAt: new Date(nowMs - 90 * 60_000), checkInLat: 40.758, checkInLng: -73.985,
+        notes: "Reviewing the POS fleet.", createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.visit.findFirst({ where: { orgId, environment: "production", title: "Globex — network audit" } }))) {
+    await p.visit.create({
+      data: {
+        orgId, environment: "production", territoryId: westId, accountId: accounts["Globex Corporation"],
+        technicianId: jordanId, title: "Globex — network audit",
+        scheduledAt: new Date(nowMs + 3 * h), status: "planned", createdBy: admin.id,
+      },
+    });
+  }
+
+  // Work orders — one open with a near-term SLA (dispatch demo), one completed
+  // with parts used (inventory consumption demo).
+  if (!(await p.workOrder.findFirst({ where: { orgId, environment: "production", title: "Northwind — POS terminal swap" } }))) {
+    await p.workOrder.create({
+      data: {
+        orgId, environment: "production", territoryId: northeastId, accountId: accounts["Northwind Traders"],
+        technicianId: samId, title: "Northwind — POS terminal swap", description: "Replace failing register 4.",
+        priority: "high", status: "dispatched", slaDueAt: new Date(nowMs + 6 * h), createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.workOrder.findFirst({ where: { orgId, environment: "production", title: "Globex — router replacement" } }))) {
+    await p.workOrder.create({
+      data: {
+        orgId, environment: "production", territoryId: westId, accountId: accounts["Globex Corporation"],
+        technicianId: jordanId, title: "Globex — router replacement", description: "Replaced core router.",
+        priority: "medium", status: "completed", completedAt: new Date(nowMs - 24 * h),
+        partsUsed: [{ sku: "RX-ROUTER-100", qty: 1 }], createdBy: admin.id,
+      },
+    });
+  }
+
+  // Assets — a POS terminal with maintenance due, a router under warranty.
+  if (!(await p.asset.findFirst({ where: { orgId, environment: "production", serialNumber: "POS-8821-NW" } }))) {
+    await p.asset.create({
+      data: {
+        orgId, environment: "production", accountId: accounts["Northwind Traders"], name: "POS Terminal #4",
+        serialNumber: "POS-8821-NW", type: "hardware", status: "active",
+        warrantyUntil: new Date(nowMs + 300 * 86_400_000),
+        lastMaintenanceAt: new Date(nowMs - 95 * 86_400_000), maintenanceIntervalDays: 90,
+        location: "Northwind — Flagship store", notes: "Swap due — see work order.", createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.asset.findFirst({ where: { orgId, environment: "production", serialNumber: "RTR-4491-GX" } }))) {
+    await p.asset.create({
+      data: {
+        orgId, environment: "production", accountId: accounts["Globex Corporation"], name: "Core Router",
+        serialNumber: "RTR-4491-GX", type: "hardware", status: "active",
+        warrantyUntil: new Date(nowMs + 400 * 86_400_000),
+        lastMaintenanceAt: new Date(nowMs - 30 * 86_400_000), maintenanceIntervalDays: 180,
+        location: "Globex — HQ data closet", createdBy: admin.id,
+      },
+    });
+  }
+
+  // Inventory — one item at/below reorder level (reorder_triggered demo).
+  if (!(await p.inventoryItem.findFirst({ where: { orgId, environment: "production", sku: "RX-ROUTER-100" } }))) {
+    await p.inventoryItem.create({
+      data: {
+        orgId, environment: "production", sku: "RX-ROUTER-100", name: "Enterprise Router", quantityOnHand: 2,
+        reorderLevel: 5, unitCost: 420, location: "NYC warehouse", notes: "Reordered monthly.", createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.inventoryItem.findFirst({ where: { orgId, environment: "production", sku: "POS-TERM-200" } }))) {
+    await p.inventoryItem.create({
+      data: {
+        orgId, environment: "production", sku: "POS-TERM-200", name: "POS Terminal", quantityOnHand: 12,
+        reorderLevel: 4, unitCost: 890, location: "NYC warehouse", createdBy: admin.id,
+      },
+    });
+  }
+
+  // ── Phase 13 · Ecosystem ───────────────────────────────────────────────
+  // Marketplace listings (one installed agent app, one integration), one
+  // installed app row, two partners (one with a won deal + commission, one
+  // with an open registered deal), and a demo change set the diff/promote
+  // flow can exercise against the sandbox.
+  if (!(await p.marketplaceListing.findFirst({ where: { orgId, environment: "production", slug: "lead-qualifier" } }))) {
+    await p.marketplaceListing.create({
+      data: {
+        orgId, environment: "production", slug: "lead-qualifier", name: "Lead Qualifier Agent",
+        kind: "agent", description: "Auto-qualifies inbound leads with a risk-tiered follow-up task + notification.",
+        publisher: "Qorvexa Labs", version: "1.2.0", icon: "🎯",
+        config: { agentTemplate: "lead" }, installCount: 1, createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.marketplaceListing.findFirst({ where: { orgId, environment: "production", slug: "webhook-studio" } }))) {
+    await p.marketplaceListing.create({
+      data: {
+        orgId, environment: "production", slug: "webhook-studio", name: "Webhook Studio",
+        kind: "integration", description: "Pipe deal-stage changes to external systems via webhooks.",
+        publisher: "Acme Integrations", version: "0.9.0", icon: "🔌",
+        config: { webhookEvents: ["deal.stage_changed"] }, installCount: 0, createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.marketplaceListing.findFirst({ where: { orgId, environment: "production", slug: "nps-survey-template" } }))) {
+    await p.marketplaceListing.create({
+      data: {
+        orgId, environment: "production", slug: "nps-survey-template", name: "NPS Survey Template",
+        kind: "template", description: "A drop-in NPS survey template with scoring + roadmap promotion.",
+        publisher: "Qorvexa Labs", version: "1.0.0", icon: "📋",
+        config: {}, installCount: 0, createdBy: admin.id,
+      },
+    });
+  }
+  // Installed app — the Lead Qualifier was installed (its agent row exists).
+  if (!(await p.app.findFirst({ where: { orgId, environment: "production", slug: "lead-qualifier" } }))) {
+    const listing = await p.marketplaceListing.findFirst({ where: { orgId, environment: "production", slug: "lead-qualifier" } });
+    await p.app.create({
+      data: {
+        orgId, environment: "production", listingId: listing?.id ?? null, slug: "lead-qualifier",
+        name: "Lead Qualifier Agent", kind: "agent", status: "installed",
+        config: { agentId: null }, installedBy: admin.id, installedAt: new Date(nowMs - 72 * h),
+      },
+    });
+  }
+
+  // Partners — Northwind channel partner (won deal → commission) + a referral
+  // partner with an open registered deal (pipeline).
+  const northwindPartner = await p.partnerAccount.findFirst({ where: { orgId, environment: "production", name: "Northwind Channel" } });
+  let northwindPartnerId: string;
+  if (northwindPartner) {
+    northwindPartnerId = northwindPartner.id;
+  } else {
+    const pp = await p.partnerAccount.create({
+      data: {
+        orgId, environment: "production", name: "Northwind Channel", type: "reseller",
+        contactName: "Elena Rodriguez", email: "elena@northwind.example", phone: "+1 212 555 0111",
+        commissionRate: 0.12, status: "active", notes: "Enterprise reseller.", createdBy: admin.id,
+      },
+    });
+    northwindPartnerId = pp.id;
+  }
+  if (!(await p.partnerDeal.findFirst({ where: { orgId, environment: "production", name: "Northwind — 400-seat rollout" } }))) {
+    await p.partnerDeal.create({
+      data: {
+        orgId, environment: "production", partnerId: northwindPartnerId, name: "Northwind — 400-seat rollout",
+        amount: 96_000, status: "won", registeredAt: new Date(nowMs - 45 * 24 * h), wonAt: new Date(nowMs - 30 * 24 * h), createdBy: admin.id,
+      },
+    });
+  }
+  const globexPartner = await p.partnerAccount.findFirst({ where: { orgId, environment: "production", name: "Globex Referrals" } });
+  let globexPartnerId: string;
+  if (globexPartner) {
+    globexPartnerId = globexPartner.id;
+  } else {
+    const pp = await p.partnerAccount.create({
+      data: {
+        orgId, environment: "production", name: "Globex Referrals", type: "referral",
+        contactName: "Marcus Chen", email: "marcus@globex.example",
+        commissionRate: 0.08, status: "active", notes: "Referral partner.", createdBy: admin.id,
+      },
+    });
+    globexPartnerId = pp.id;
+  }
+  if (!(await p.partnerDeal.findFirst({ where: { orgId, environment: "production", name: "Globex — expansion" } }))) {
+    await p.partnerDeal.create({
+      data: {
+        orgId, environment: "production", partnerId: globexPartnerId, name: "Globex — expansion",
+        amount: 24_000, status: "approved", registeredAt: new Date(nowMs - 10 * 24 * h), createdBy: admin.id,
+      },
+    });
+  }
+
+  // Change set — a demo bundle (a custom field + the Lead agent) the promote
+  // flow can push into the sandbox.
+  if (!(await p.changeSet.findFirst({ where: { orgId, environment: "production", name: "Q3 field rollout" } }))) {
+    await p.changeSet.create({
+      data: {
+        orgId, environment: "production", name: "Q3 field rollout",
+        description: "Custom field + agent template for the sandbox preview.",
+        items: [
+          { entity: "fieldDef", op: "create", key: "contact:employeeCount", data: { objectType: "contact", key: "employeeCount", label: "Employee count", type: "number", required: false, options: [], order: 50 } },
+          { entity: "agent", op: "create", key: "lead", data: { name: "Lead Qualifier", kind: "lead", trigger: { kind: "event", event: "lead.created" }, rules: [], tools: ["create_task", "notify", "update_record"], tierPolicy: {}, memoryEnabled: true, active: true } },
+        ],
+        status: "draft", createdBy: admin.id,
+      },
+    });
+  }
+
+  const ecosystemListings = await p.marketplaceListing.count({ where: { orgId, environment: "production" } });
+  const ecosystemApps = await p.app.count({ where: { orgId, environment: "production" } });
+  const ecosystemPartners = await p.partnerAccount.count({ where: { orgId, environment: "production" } });
+  const ecosystemDeals = await p.partnerDeal.count({ where: { orgId, environment: "production" } });
+  const ecosystemChangeSets = await p.changeSet.count({ where: { orgId, environment: "production" } });
+  console.log(`  Ecosystem: ${ecosystemListings} listing(s), ${ecosystemApps} app(s), ${ecosystemPartners} partner(s), ${ecosystemDeals} partner deal(s), ${ecosystemChangeSets} change set(s)`);
+
+  const territoryCount = await p.territory.count({ where: { orgId, environment: "production" } });
+  const technicianCount = await p.technician.count({ where: { orgId, environment: "production" } });
+  const visitCount = await p.visit.count({ where: { orgId, environment: "production" } });
+  const workOrderCount = await p.workOrder.count({ where: { orgId, environment: "production" } });
+  const assetCount = await p.asset.count({ where: { orgId, environment: "production" } });
+  const inventoryCount = await p.inventoryItem.count({ where: { orgId, environment: "production" } });
+  console.log(`  Field: ${territoryCount} territory(ies), ${technicianCount} technician(s), ${visitCount} visit(s), ${workOrderCount} work order(s), ${assetCount} asset(s), ${inventoryCount} inventory item(s)`);
 
   console.log(`✓ Seeded demo org "${ORG_NAME}"`);
   console.log(`  Login → admin@qorvexa.dev / password123`);

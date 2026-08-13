@@ -4,6 +4,7 @@ import { db } from "../db";
 import { env } from "../env";
 import { unauthorized, forbidden } from "./http";
 import { tokenSessionUser } from "./tokens";
+import { issueSession, resolveSession } from "./security";
 
 export const SESSION_COOKIE = "qorvexa.session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -16,9 +17,11 @@ export type SessionUser = {
   role: string;
 };
 
-// ── Signed-cookie sessions (HMAC) ────────────────────────────────────────────
-// Payload: base64url(json).hmac — no server-side state. Cookie is httpOnly.
-// Upgraded to DB-backed sessions + device management in Phase 14.
+// ── DB-backed sessions (Phase 14) ────────────────────────────────────────────
+// The cookie payload embeds a SecuritySession id; resolveSession checks the
+// row (revoked / expired) and refreshes lastSeenAt. `createSessionCookie` is
+// kept for legacy cookies issued before the Phase 14 upgrade — loadSession
+// falls back to the payload user when the row is missing.
 
 function sign(payload: string): string {
   return crypto.createHmac("sha256", env.sessionSecret).update(payload).digest("base64url");
@@ -32,27 +35,62 @@ export function createSessionCookie(user: SessionUser): string {
   return `${body}.${sign(body)}`;
 }
 
-function verify(token: string): SessionUser | null {
+/** Attach req.sessionUser when a valid cookie is present (never throws). */
+export async function loadSession(req: Request, _res: Response, next: NextFunction) {
+  try {
+    const raw = (req as Request & { cookies?: Record<string, string> }).cookies?.[SESSION_COOKIE];
+    if (!raw) {
+      (req as any).sessionUser = null;
+      return next();
+    }
+    const session = await resolveSession(raw, req);
+    if (!session) {
+      // Legacy cookie without a DB session — verify the HMAC payload directly.
+      const legacy = verifyLegacy(raw);
+      (req as any).sessionUser = legacy;
+      return next();
+    }
+    (req as any).sessionUser = session;
+    next();
+  } catch {
+    (req as any).sessionUser = null;
+    next();
+  }
+}
+
+function verifyLegacy(token: string): SessionUser | null {
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
   const expected = sign(body);
-  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)))
-    return null;
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   try {
     const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
     if (typeof parsed.exp !== "number" || parsed.exp < Date.now()) return null;
+    if (parsed.sessionId) return null; // DB session row missing → treat as logged out
     return { id: parsed.id, orgId: parsed.orgId, email: parsed.email, name: parsed.name, role: parsed.role };
   } catch {
     return null;
   }
 }
 
-/** Attach req.sessionUser when a valid cookie is present (never throws). */
-export function loadSession(req: Request, _res: Response, next: NextFunction) {
-  const raw = (req as Request & { cookies?: Record<string, string> }).cookies?.[SESSION_COOKIE];
-  const user = raw ? verify(raw) : null;
-  (req as any).sessionUser = user ?? null;
-  next();
+/** Short-lived signed token for the MFA challenge step (10 min). */
+export function createMfaToken(userId: string): string {
+  const body = Buffer.from(JSON.stringify({ mfa: true, userId, exp: Date.now() + 10 * 60 * 1000 }), "utf8").toString("base64url");
+  return `${body}.${sign(body)}`;
+}
+
+export function verifyMfaToken(token: string): string | null {
+  const [body, sig] = token.split(".");
+  if (!body || !sig) return null;
+  const expected = sign(body);
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    if (!parsed.mfa || typeof parsed.exp !== "number" || parsed.exp < Date.now()) return null;
+    return parsed.userId as string;
+  } catch {
+    return null;
+  }
 }
 
 /**

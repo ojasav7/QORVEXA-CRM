@@ -186,6 +186,93 @@ webhook.created        org.created
 > so the header bell surfaces "Low AI confidence ⚠️" without waiting for a page
 > view — same pattern as Phase 6 metric alerts.
 
+## Phase 9 events (AI Agent Platform)
+
+| Event | When | Payload |
+|---|---|---|
+| `agent.created` / `updated` / `deleted` | Agent lifecycle (admin) | `{ name, kind }` |
+| `agent.action_proposed` | A run proposed an action | `{ runId, actionId, tool, riskTier, entity, entityId, reason }` |
+| `agent.action_approved` | An admin/manager approved a 🟡/🔴 action | `{ actionId, runId, tool, status, result }` |
+| `agent.action_executed` | A 🟢 action executed (or a 🟡/🔴 action after approval) | `{ runId, actionId, tool, status, result }` |
+| `agent.action_rejected` | A 🟡/🔴 action was rejected | `{ actionId, runId, tool }` |
+| `agent.killed` | Org-wide or per-agent kill switch toggled | `{ scope: "org" \| "agent", name?, on }` |
+
+> **Approval queue** also writes admin **notifications** (`kind: "agent"`,
+> link to `/agents?run=<id>`) when a run lands in `waiting_approval` — the
+> human-in-the-loop surface is push, not poll.
+
+## Phase 11 events (Customer Success, Retention & Expansion)
+
+| Event | When | Payload |
+|---|---|---|
+| `success_plan.created` / `updated` / `deleted` | Success plan lifecycle (admin/manager) | `{ name, kind }` |
+| `milestone.added` / `milestone.completed` | A plan milestone was added / marked done | `{ plan, title }` |
+| `qbr.logged` | A QBR was recorded on a plan | `{ plan, title, date }` |
+| `usage.tracked` | A usage event was ingested (API or event-bus mirror) | `{ feature, type, source }` |
+| `usage.adoption_dropped` | An account's distinct features dropped ≥ 50% vs the prior window | `{ accountId, accountName, featuresBefore, featuresAfter }` |
+| `churn.risk_scored` | A churn refresh escalated an account's risk tier | `{ accountId, score, tier, previousTier }` |
+| `expansion.opportunity_detected` | The expansion radar found an upsell/cross-sell | `{ kind, accountId, reason, value }` |
+| `survey.created` / `updated` / `deleted` | Survey lifecycle (admin/manager) | `{ name, kind }` |
+| `survey.response_submitted` | A survey response was recorded | `{ surveyId, score, sentiment }` |
+| `roadmap.created` / `updated` | A roadmap item was created (incl. from survey feedback) / triaged | `{ title, source, status }` |
+| `loyalty.program_created` / `updated` | Loyalty program lifecycle | `{ name }` |
+| `loyalty.member_enrolled` | A contact joined a program | `{ program, contactId }` |
+| `loyalty.points_awarded` | A member earned points | `{ memberId, points, reason }` |
+| `referral.created` | A member referred an email | `{ program, referredEmail, status }` |
+| `referral.converted` | A referral converted (referrer awarded points) | `{ referralId, referredEmail, pointsAwarded }` |
+
+> **Adoption drops, churn escalations, and referral conversions** also write
+> admin **notifications** (`kind: "cs"`) — the customer-success loop is push,
+> not poll: the bell surfaces "Usage declining ⚠️" / "Churn risk escalated"
+> without waiting for a page view (same pattern as Phase 6 metric alerts and
+> Phase 9 agent approvals).
+
+## Phase 12 events (Field Operations)
+
+| Event | When | Payload |
+|---|---|---|
+| `territory.created` / `updated` / `deleted` | Territory lifecycle (admin/manager) | `{ name }` |
+| `technician.created` / `updated` | Technician lifecycle / status change | `{ name, status? }` |
+| `visit.scheduled` | A visit was scheduled | `{ title, technicianId? }` |
+| `visit.checked_in` | A technician GPS-checked into a visit | `{ title, lat, lng }` |
+| `visit.completed` / `visit.cancelled` | A visit finished / was cancelled | `{ title }` |
+| `workorder.created` | A work order was created | `{ title, priority }` |
+| `workorder.dispatched` | A work order was assigned to a technician | `{ title, technicianId }` |
+| `workorder.sla_breached` | An open work order passed its SLA deadline | `{ title, slaDueAt }` |
+| `workorder.completed` | A work order was completed (parts deducted) | `{ title, partsUsed }` |
+| `workorder.cancelled` | A work order was cancelled | `{ title }` |
+| `asset.maintenance_due` | An asset's maintenance interval elapsed | `{ name, serialNumber, intervalDays }` |
+| `asset.maintenance_done` | Maintenance was logged on an asset | `{ name, serialNumber }` |
+| `inventory.received` / `inventory.consumed` | Stock moved in / out | `{ sku, qty, onHand, reason? }` |
+| `inventory.reorder_triggered` | Stock fell to/below its reorder level | `{ sku, onHand, reorderLevel }` |
+| `<entity>.synced` | An offline change was applied by the sync endpoint | `{ op: "create" \| "update" }` |
+
+> **Maintenance due, SLA breaches, and reorder alerts** also write admin
+> **notifications** (`kind: "field"`) — the field loop is push, not poll: the
+> bell surfaces "N work order(s) past SLA" / "N asset(s) due for maintenance"
+> / "N inventory item(s) at/below reorder level" without waiting for a page
+> view (same pattern as Phase 6/9/11).
+
+## Phase 13 events (Ecosystem)
+
+| Event | When | Payload |
+|---|---|---|
+| `marketplace.listing_created` / `updated` / `deleted` | Marketplace listing lifecycle (admin) | `{ slug, name, kind }` |
+| `app.installed` | A listing was installed — install payload applied (agent template → Phase 9 `agent.created` with `source: "marketplace"`, webhook row created) | `{ slug, name, kind, config }` |
+| `app.uninstalled` | An installed app was uninstalled | `{ slug, name }` |
+| `partner.created` / `updated` | Partner lifecycle (admin/manager) | `{ name, type }` |
+| `partner.deal_registered` | A co-sold deal was registered (deal registration) | `{ partner, name, amount, opportunityId? }` |
+| `partner.deal_updated` | A registered deal moved to `approved` / `lost` | `{ name, status }` |
+| `partner.commission_earned` | A registered deal moved to `won` — commission = amount × rate (derived) | `{ partner, deal, amount, rate, commission }` |
+| `changeset.created` | A change set was created | `{ name, itemCount }` |
+| `changeset.promoted` | A change set was promoted into a target environment (items replayed) | `{ name, fromEnv, toEnv, applied, errors }` |
+| `schema.field_deleted` | A custom field was deleted **via safe-delete** (refuses fields in use) or replayed by a change set | `{ objectType, key, via: "safe-delete" \| "changeset" }` |
+
+> **Ecosystem installs and change-set promotions are evented end-to-end** — the
+> marketplace→agent path emits `app.installed` + `agent.created` (Phase 9), and
+> a promoted change set emits `changeset.promoted` per promotion plus
+> `schema.field_deleted` for any deletes it replays.
+
 ## Consumers
 
 1. **In-process** — `onEvent(type, cb)` in `lib/events.ts`. Phase 3 workflow engine and Phase 8 AI subscribe here.

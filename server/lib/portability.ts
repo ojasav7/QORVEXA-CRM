@@ -55,6 +55,16 @@ const COLLECTIONS: [string, string][] = [
   ["webhookDeliveries", "webhookDelivery"],
   ["events", "event"],
   ["auditLogs", "auditLog"],
+  // Phase 10 · Revenue Cloud
+  ["products", "product"],
+  ["priceBooks", "priceBook"],
+  ["quoteTemplates", "quoteTemplate"],
+  ["quotes", "quote"],
+  ["orders", "order"],
+  ["contracts", "contract"],
+  ["subscriptions", "subscription"],
+  ["invoices", "invoice"],
+  ["payments", "payment"],
 ];
 
 export type PortabilityResult = { path: string; sizeBytes: number; counts: Record<string, number> };

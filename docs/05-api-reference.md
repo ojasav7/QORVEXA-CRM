@@ -566,6 +566,156 @@ The model catalog is **data** (`ModelRoute` rows): name, provider, tier, capabil
 | PUT | `/api/models/:id` | Admin | Edit cost/latency/capabilities/weight/region. Emits `model.updated`. |
 | DELETE | `/api/models/:id` | Admin | Remove from the catalog. Emits `model.deleted`. |
 
+## AI Agents (Phase 9, flag `ai.agents`)
+
+The **governed agent platform** (ADR-021): declarative `Agent` rows (trigger,
+rules, tool allowlist, per-tool risk tiers) propose **risk-tiered actions** —
+🟢 auto-execute, 🟡 wait for admin/manager approval, 🔴 admin-only. Every run
+writes the AI audit trail (`AgentRun` + `AgentAction`: firewalled context →
+reasoning → proposals → approval → result) + emits `agent.*` events, meters
+simulated cost, and can be frozen by the kill switches. Reads open (the page
+is a monitoring + governance surface); writes (create/edit/delete, run, kill
+switch, policy) admin-only; the approval endpoints are admin/manager.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/agents` | Any | `{ items, templates, toolTiers, orgKillSwitched }` — agents + pre-built templates + tier defaults + the org-wide kill-switch state. |
+| POST | `/api/agents` | Admin | Create an agent from a template kind or custom: `{ name, kind, trigger, rules, tools, tierPolicy, memoryEnabled, active }`. Emits `agent.created` (201). |
+| GET | `/api/agents/:id` | Any | `{ agent, runs, actions, memory }` — one agent + its audit trail. |
+| PUT | `/api/agents/:id` | Admin | Edit trigger/rules/tools/tierPolicy/active. Emits `agent.updated`. |
+| DELETE | `/api/agents/:id` | Admin | Remove the agent + its runs/actions/memory/tests. Emits `agent.deleted`. |
+| POST | `/api/agents/:id/run` | Admin | Manual run: `{ entity, entityId }` — 🟢 executes now, 🟡/🔴 land in the approval queue. Kill-switched → 400 (201). |
+| GET | `/api/agents/runs` | Any | `{ items, total }` — the run audit trail (newest first, `?limit=` ≤ 100). |
+| GET | `/api/agents/approvals` | Any | `{ items, total }` — everything waiting on a human (🟡/🔴 `status: proposed`). |
+| POST | `/api/agents/actions/:id/approve` | Admin/manager | Approve + execute a waiting action (🔴 requires admin — manager → 400). Emits `agent.action_approved`. |
+| POST | `/api/agents/actions/:id/reject` | Admin/manager | Reject a waiting action. Emits `agent.action_rejected`. |
+| POST | `/api/agents/:id/test` | Any | 🆕 Testing/simulation lab — dry-run `{ entity, entityId, name }` with NO execution: `passed` (all green/yellow) / `blocked` (a 🔴 action) / `failed` (201). |
+| GET | `/api/agents/:id/tests` | Any | `{ items }` — the simulation history for one agent. |
+| GET | `/api/agents/:id/rules?entity=&entityId=` | Any | Rule-match diagnostic — `{ matched }` against a real record. |
+| POST | `/api/agents/kill-switch` | Admin | 🆕 Org-wide kill switch: `{ on }` — freezes every agent; emits `agent.killed` (`scope: "org"`). |
+| POST | `/api/agents/:id/kill` | Admin | 🆕 Per-agent kill switch: `{ on }` — freezes one agent; emits `agent.killed` (`scope: "agent"`). |
+| GET | `/api/agents/analytics` | Any | Per-agent performance: runs, success rate, escalation rate (yellow/red share), waiting approvals, cost + org totals. |
+| GET | `/api/agents/metering` | Any | 🆕 Cost metering: total simulated spend, per-agent, and a per-entity breakdown. |
+
+## Customer Success (Phase 11 — flags `cs.plans` / `cs.usage` / `cs.churn` / `cs.surveys` / `cs.loyalty`)
+
+The **customer-success operating loop** (ADR-023): success/onboarding plans
+with milestones + QBRs, product usage intelligence (ingest + event-bus mirror
++ adoption-drop detection), explained churn prediction v2 with snapshot
+history + the expansion radar, NPS/CSAT/CES surveys with a feedback → roadmap
+pipeline, and loyalty/advocacy (programs, derived tiers, points, referrals).
+Every score is derived at read and explained — no black boxes (ADR-020
+discipline). Reads open (the page is a monitoring surface); writes
+(plans/surveys/programs, churn refresh, tick) are admin/manager.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/success/plans` | Any | `{ items }` — plans hydrated with `accountName`, `ownerName`, live `healthScore` + `churnRisk`, and `atRisk` (health < 60 or churn tier ≥ high). |
+| GET | `/api/success/plans/:id` | Any | One plan + its milestones, QBRs, and live health. |
+| POST | `/api/success/plans` | Admin/manager | Create: `{ name, kind?, accountId?, ownerId?, startDate?, targetDate?, notes?, status? }`. Emits `success_plan.created` (201). |
+| PUT | `/api/success/plans/:id` | Admin/manager | Edit name/status/owner/dates/notes/account. Emits `success_plan.updated`. |
+| DELETE | `/api/success/plans/:id` | Admin/manager | Remove a plan. Emits `success_plan.deleted`. |
+| POST | `/api/success/plans/:id/milestones` | Admin/manager | Add a milestone `{ title, dueDate? }` (201). |
+| POST | `/api/success/plans/:id/milestones/:mid` | Admin/manager | `{ done: true|false }` — complete/open a milestone; done emits `milestone.completed`. |
+| POST | `/api/success/plans/:id/qbrs` | Admin/manager | Log a QBR `{ title, date?, attendees?, notes? }`. Emits `qbr.logged` (201). |
+| GET | `/api/success/usage` | Any | Derived usage overview: per-account features used, last-active days, activity trend, seat utilization, per-feature adoption, `bySource` (api/event-bus/seed), org totals. |
+| POST | `/api/success/usage` | Any | 🆕 Product telemetry ingest: `{ feature, type?, value?, accountId?, profileId? }`. Emits `usage.tracked` (201). |
+| GET | `/api/success/churn` | Any | Live churn overview: per-account score 0–100, tier, explained `factors [{ key, label, impact, detail }]`, snapshot history + delta; `?accountId=` filters one. |
+| GET | `/api/success/churn/expansion` | Any | 🆕 Expansion radar: seat upsells (utilization ≥ 90%), plan upsells, cross-sells — each `{ kind, accountName, reason, value }`. Emits `expansion.opportunity_detected`. |
+| POST | `/api/success/churn/refresh` | Admin/manager | 🆕 Persist a `ChurnScore` snapshot per account (one `refreshId`); tier escalations emit `churn.risk_scored` + notify admins (kind `cs`). |
+| GET | `/api/success/surveys` | Any | `{ items }` — surveys with live result summaries. |
+| POST | `/api/success/surveys` | Admin/manager | Create `{ name, kind: nps|csat|ces, question?, targetSegmentId? }`. Emits `survey.created` (201). |
+| GET | `/api/success/surveys/:id` | Any | One survey + its responses. |
+| PUT | `/api/success/surveys/:id` | Admin/manager | Edit name/question/active. Emits `survey.updated`. |
+| DELETE | `/api/success/surveys/:id` | Admin/manager | Remove a survey. Emits `survey.deleted`. |
+| POST | `/api/success/surveys/:id/responses` | Any | Record a response `{ score, comment?, contactId?, accountId? }` — score validated per kind (nps 0–10, csat 1–5, ces 1–7; out-of-range → 400). Emits `survey.response_submitted` (201). |
+| GET | `/api/success/surveys/:id/results` | Any | Results computed at read with formula lineage (NPS = %promoters − %detractors), breakdown, derived comment sentiment. |
+| GET | `/api/success/roadmap` | Any | `{ items }` — roadmap items (optionally `?status=`), voted + sourced (survey/feedback/internal). |
+| POST | `/api/success/roadmap` | Admin/manager | Create `{ title, description?, category?, source?, surveyResponseId? }` — promote survey feedback with `source: "survey"`. Emits `roadmap.created` (201). |
+| PUT | `/api/success/roadmap/:id` | Admin/manager | Triage: `{ status: triaged|planned|in_progress|shipped|declined }`. Emits `roadmap.updated`. |
+| POST | `/api/success/roadmap/:id/vote` | Any | 🆕 Vote an item up (backlog prioritization). |
+| GET | `/api/success/loyalty` | Any | Programs + members (tier derived at read from points) + referrals + org totals. |
+| POST | `/api/success/loyalty/programs` | Admin/manager | Create a program `{ name, tiers?, rewards?, pointsRules? }`. Emits `loyalty.program_created` (201). |
+| PUT | `/api/success/loyalty/programs/:id` | Admin/manager | Edit tiers/rewards/pointsRules/active. Emits `loyalty.program_updated`. |
+| POST | `/api/success/loyalty/programs/:id/members` | Admin/manager | 🆕 Enroll a contact `{ contactId? }`. Emits `loyalty.member_enrolled` (201). |
+| POST | `/api/success/loyalty/members/:id/award` | Admin/manager | 🆕 Award points `{ points, reason }` (positive only — else 400). Emits `loyalty.points_awarded`. |
+| GET | `/api/success/loyalty/referrals` | Any | `{ items }` — referral records with referrer + program. |
+| POST | `/api/success/loyalty/referrals` | Any | 🆕 Create a referral `{ programId, referredEmail, referredName?, referrerContactId? }` (201). |
+| POST | `/api/success/loyalty/referrals/:id/status` | Admin/manager | Move lifecycle `{ status: contacted|converted|expired }` (invalid transitions → 400); `converted` awards the referrer + emits `referral.converted`. |
+| POST | `/api/success/tick` | Admin/manager | Run one engine-ticker pass on demand (adoption-drop scan, churn refresh, referral/loyalty checks). |
+
+## Field Operations (Phase 12 — flags `field.territories` / `field.visits` / `field.workorders` / `field.inventory`)
+
+Territory management, field service (visits + GPS check-ins + route planning,
+work orders + dispatch + SLA), assets + inventory, and offline sync. Reads
+open (the page is a planning + dispatch surface); config writes admin/manager
+(territory delete admin-only); **field-worker ops** (visit start/check-in/
+complete, work-order start/complete, stock consume, sync) open to reps. The
+offline-sync contract has its own spec (`docs/38-offline-sync-spec.md`).
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/field/overview` | Any | `{ overview }` — territories, technicians, visits planned/today, open work orders + SLA breaches, maintenance due, low stock, stock value. |
+| GET | `/api/field/territories` | Any | `{ items }` — territories hydrated with `ownerName`, `accountNames`. |
+| GET | `/api/field/territories/:id` | Any | One territory. |
+| POST | `/api/field/territories` | Admin/manager | Create `{ name, region?, ownerId?, accountIds?, active?, notes? }`. Emits `territory.created` (201). |
+| PUT | `/api/field/territories/:id` | Admin/manager | Edit name/region/owner/accounts/active/notes. Emits `territory.updated`. |
+| DELETE | `/api/field/territories/:id` | Admin | Remove a territory. Emits `territory.deleted`. |
+| GET | `/api/field/technicians` | Any | `{ items }` — technicians with skills, status, last position, territory, derived open work-order load. |
+| POST | `/api/field/technicians` | Admin/manager | Create `{ name, userId?, territoryId?, phone?, skills?, lat?, lng? }` (201). |
+| PUT | `/api/field/technicians/:id` | Admin/manager | Edit name/phone/territory/skills/status/lat/lng. Emits `technician.updated`. |
+| GET | `/api/field/visits` | Any | `{ items }` — visits (`?technicianId=`, `?status=`), hydrated with names. |
+| POST | `/api/field/visits` | Admin/manager | Schedule `{ title, scheduledAt, territoryId?, accountId?, contactId?, technicianId?, notes? }`. Emits `visit.scheduled` (201). |
+| POST | `/api/field/visits/:id/start` | Any | Mark in-transit (technician en route). |
+| POST | `/api/field/visits/:id/check-in` | Any | 🆕 GPS check-in `{ lat?, lng? }` → `checked_in`, records coords, emits `visit.checked_in`, updates the technician's position. |
+| POST | `/api/field/visits/:id/complete` | Any | Complete a visit (cancelled → 400). Emits `visit.completed`. |
+| POST | `/api/field/visits/:id/cancel` | Admin/manager | Cancel a visit (completed → 400). Emits `visit.cancelled`. |
+| GET | `/api/field/routes/optimize` | Any | 🆕 Route plan `?technicianId=` — greedy nearest-neighbor order of open visits with per-leg + cumulative km (haversine). |
+| GET | `/api/field/workorders` | Any | `{ items }` — work orders (`?status=`), hydrated + derived `slaBreached`. |
+| POST | `/api/field/workorders` | Admin/manager | Create `{ title, description?, priority?, accountId?, assetId?, territoryId?, technicianId?, slaDueAt?, notes? }`. Emits `workorder.created` (201). |
+| POST | `/api/field/workorders/:id/dispatch` | Admin/manager | Assign `{ technicianId }` (unknown → 400) → `dispatched`, technician `on_route`. Emits `workorder.dispatched`. |
+| POST | `/api/field/workorders/:id/start` | Any | Mark in-progress. |
+| POST | `/api/field/workorders/:id/complete` | Any | Complete with `{ notes?, partsUsed?: [{ sku, qty }] }` — validates + deducts inventory, resets asset maintenance, frees technician. Emits `workorder.completed` + `inventory.consumed`. |
+| POST | `/api/field/workorders/:id/cancel` | Admin/manager | Cancel (completed → 400). Emits `workorder.cancelled`. |
+| GET | `/api/field/assets` | Any | `{ items }` — assets with warranty, maintenance schedule, derived `maintenanceDue`. |
+| POST | `/api/field/assets` | Admin/manager | Create `{ name, accountId?, serialNumber?, type?, warrantyUntil?, lastMaintenanceAt?, maintenanceIntervalDays?, location?, notes? }` (201). |
+| PUT | `/api/field/assets/:id` | Admin/manager | Edit name/serial/status/location/notes/maintenance fields. Emits `asset.updated`. |
+| POST | `/api/field/assets/:id/maintenance` | Admin/manager | 🆕 Log maintenance — resets the clock, emits `asset.maintenance_done`. |
+| GET | `/api/field/inventory` | Any | `{ items }` — SKU, on-hand, reorder level, unit cost, derived `lowStock` + `stockValue`. |
+| POST | `/api/field/inventory` | Admin/manager | Create `{ sku, name, quantityOnHand?, reorderLevel?, unitCost?, location?, notes? }` (duplicate SKU → 400, 201). |
+| POST | `/api/field/inventory/:id/receive` | Admin/manager | Stock in `{ qty }` (non-positive → 400). Emits `inventory.received`. |
+| POST | `/api/field/inventory/:id/consume` | Any | Stock out `{ qty, reason? }` (insufficient → 400). Emits `inventory.consumed`. |
+| POST | `/api/field/sync` | Any | 🆕 Offline sync (see `docs/38-offline-sync-spec.md`): `{ since?, changes?: [{ entity, op, id?, data, clientTs }] }` → `{ pushed, conflicts, pulled }` (last-write-wins). |
+| POST | `/api/field/tick` | Admin | Run one engine-ticker pass (maintenance / SLA / reorder scans + notifications). |
+
+## Ecosystem (Phase 13 — flags `ecosystem.marketplace` / `ecosystem.partners` / `ecosystem.changesets` / `ecosystem.schema`)
+
+The extensibility loop: a marketplace (`MarketplaceListing` → `App` installs with install payloads — agent templates wired into the Phase 9 engine, webhook subscriptions, flag hints), partner & channel management (`PartnerAccount` + registered deals with derived commissions), change sets that promote config/schema changes between environments (`ChangeSet`, `changeset.promoted`), and schema change-impact analysis before deleting a custom field. Reads open (the page is a management surface); marketplace/change-set/schema writes admin-only; partner writes admin/manager.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/ecosystem/overview` | Any | `{ overview }` — listings, installed apps, active partners, registered deals, commission earned, pipeline value, draft + promoted change sets. |
+| GET | `/api/ecosystem/marketplace` | Any + flag | `{ items }` — listings with `installed` (resolved against the org's App rows). |
+| POST | `/api/ecosystem/marketplace` | Admin + flag | Publish `{ slug, name, kind?, description?, publisher?, version?, icon?, config? }` (`kind ∈ app|agent|integration|template`; duplicate slug → 400). Emits `marketplace.listing_created` (201). |
+| PUT | `/api/ecosystem/marketplace/:id` | Admin + flag | Edit name/description/version/icon/config/active. Emits `marketplace.listing_updated`. |
+| DELETE | `/api/ecosystem/marketplace/:id` | Admin + flag | Remove a listing. Emits `marketplace.listing_deleted`. |
+| GET | `/api/ecosystem/apps` | Any + flag | `{ items }` — installed/uninstalled App rows with their applied install config. |
+| POST | `/api/ecosystem/apps/install` | Admin + flag | `{ listingId }` — applies the listing's install payload: `config.agentTemplate` creates a Phase 9 agent (emits `agent.created` with `source: "marketplace"`), `config.webhookEvents` creates a webhook. Double-install → 400. Emits `app.installed` (201). |
+| POST | `/api/ecosystem/apps/:id/uninstall` | Admin + flag | Uninstall (not installed → 400). Emits `app.uninstalled`. |
+| GET | `/api/ecosystem/partners` | Any + flag | `{ items }` — partners hydrated with their deals, derived `commissionEarned` (won × rate) + `pipelineValue` (registered/approved). |
+| POST | `/api/ecosystem/partners` | Admin/manager + flag | Create `{ name, type?, contactName?, email?, phone?, commissionRate?, notes? }` (`type ∈ reseller|referral|technology|consultant`, rate 0–1). Emits `partner.created` (201). |
+| PUT | `/api/ecosystem/partners/:id` | Admin/manager + flag | Edit contact fields / commission rate / status / notes. Emits `partner.updated`. |
+| POST | `/api/ecosystem/partners/:id/deals` | Admin/manager + flag | 🆕 Deal registration `{ name, amount?, opportunityId? }`. Emits `partner.deal_registered` (201). |
+| POST | `/api/ecosystem/partners/deals/:id/status` | Admin/manager + flag | `{ status: registered|approved|won|lost }` — `won` stamps `wonAt` + emits `partner.commission_earned` (amount × rate). Emits `partner.deal_updated` otherwise. |
+| POST | `/api/ecosystem/changesets/diff` | Admin + flag | `{ from, to }` — `{ items }`: fieldDef/agent rows in `from` absent (or newer) in `to`, ready to bundle. |
+| GET | `/api/ecosystem/changesets` | Any + flag | `{ items }` — change sets, newest first. |
+| POST | `/api/ecosystem/changesets` | Admin + flag | Create `{ name, description?, items: [{ entity, op, key, data? }], fromEnv?, toEnv? }` (`entity ∈ fieldDef|agent|featureFlag`, `op ∈ create|update|delete`; zero items → 400). Emits `changeset.created` (201). |
+| POST | `/api/ecosystem/changesets/:id/promote` | Admin + flag | `{ to }` — replays every item into the target environment (creates/updates/deletes fields, agents, flags; per-item errors recorded; already-promoted → 400). Emits `changeset.promoted`. |
+| GET | `/api/ecosystem/schema/impact` | Any + flag | `?objectType=&key=` — change-impact analysis: `{ field, references: [{ surface, name, id, detail }], total, recordValues }`. Surfaces scanned: segments, workflows, agents, lead forms, reports, field permissions + stored record values. |
+| POST | `/api/ecosystem/schema/safe-delete` | Admin + flag | `{ id }` — refuses when the field has config references or record values (`Field is in use: …`), otherwise deletes + emits `schema.field_deleted` (`via: "safe-delete"`). |
+
+**Change-set promotion semantics:** items are replayed as `create` (insert when absent) / `update` (patch when present) / `delete`; a field delete replays `schema.field_deleted` with `via: "changeset"` in the target environment. Partial failures keep the change set in `promoted` state with the per-item `error` recorded (all-or-nothing only when nothing applied).
+
 ## Duplicate merge (Phase 1)
 
 Merges two records of the same type into a master, choosing per-field which record wins.

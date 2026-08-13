@@ -96,17 +96,61 @@ See `docs/23-spec-phase7.md` + `docs/25-cdp-guide.md` + `docs/24-phase7-build-re
 
 See `docs/26-spec-phase8.md` + `docs/28-ai-guide.md` + `docs/27-phase8-build-report.md`.
 
-## Phase 9 — AI Agent Platform ⬜
+## Phase 9 — AI Agent Platform ✅ **COMPLETE**
 
-Agent builder, risk-tiered actions, kill switch, testing lab, cost metering. Governance model already defined (`docs/04-permissions.md`).
+- **Agent builder — ✅** (flag `ai.agents`, ADR-021): declarative `Agent` rows (trigger event/manual + rules field filters + **tool allowlist** + per-tool `tierPolicy` risk overrides + `memoryEnabled`/`active`/per-agent `killSwitched`). CRUD at `/api/agents` — reads open (the page is a governance surface), writes admin-only.
+- **Risk-tiered action system — ✅** (blueprint §3.4): 🟢 auto (`create_task`/`notify`/`create_ticket` — executes in-run through the generic object service), 🟡 approval (`send_email`/`update_record` — persists `proposed`, admin/manager approves), 🔴 human required (**admin-only**, never automatic). Runs with 🟡/🔴 notify the org's admins (kind `agent`, link to the approvals queue).
+- **Pre-built agents — ✅**: Lead (`lead.created`), Sales (`deal.stage_changed`), Customer Service (`ticket.created`), Renewal (`deal.stage_changed`, seeded with the 🟡 `send_email` override). Deterministic per-kind deciders — every proposal carries an English reason, the run ships the joined `reasoning` (no black box).
+- **AI audit trail — ✅**: `AgentRun` (firewalled context + recent events + memory + reasoning + `riskSummary` + cost) + `AgentAction` rows (tool, tier, params, reason, status, result, `approvedBy`); evented `agent.action_proposed/approved/executed/rejected` + `agent.created/updated/deleted`.
+- **Agent analytics — ✅**: per-agent success rate, **escalation rate** (yellow/red share), waiting approvals, cost + org totals (`GET /api/agents/analytics`).
+- **🆕 Kill switch — ✅**: org-wide (`POST /api/agents/kill-switch`, header banner) + per-agent (`POST /api/agents/:id/kill`); checked before every run, emits `agent.killed`.
+- **🆕 Testing / simulation lab — ✅**: `POST /api/agents/:id/test` dry-runs a scenario with NO execution → `passed` / `blocked` (🔴 action) / `failed`, persisted as `AgentTest` rows with predicted cost.
+- **🆕 Cost metering — ✅**: simulated tokens × cheapest `ModelRoute` price per run/test; `Agent.costTotal` + `GET /api/agents/metering` (total, per-agent, per-entity).
+- **Agent memory — ✅**: `AgentMemory` per-entity scratchpad (TTL-purged by the engine ticker), fed into future context.
+- **UI — ✅**: **Agents** page (`/agents`, "AI" nav section) — Agents / Approvals / Runs / Testing lab / Analytics tabs + agent detail drawer (manual run, memory, recent actions). Engine: `startAgentEngine` event-bus subscriber + memory ticker.
 
-## Phase 10 — Revenue Cloud ⬜
+See `docs/29-spec-phase9.md` + `docs/31-agent-governance-guide.md` + `docs/30-phase9-build-report.md`.
 
-CPQ, contracts, billing, subscriptions, MRR. Opportunity amount/stage history already event-sourced.
+## Phase 10 — Revenue Cloud ✅ **COMPLETE**
 
-## Phase 11 — Customer Success ⬜ / Phase 12 — Field Ops ⬜ / Phase 13 — Ecosystem ⬜
+- **Product catalog + price books — ✅**: `Product` rows (SKU, listPrice, cost, taxable, bundle `components`), price books with entries + per-product discounts, lazy default-book seeding, templates.
+- **CPQ — ✅**: `/api/quotes/preview` server-side pricing (bundle expansion, book discounts, tax), quotes with approval → e-sign → order, manual orders.
+- **Contracts + billing — ✅**: contract analyzer (effective dates, auto-renew, payment terms, governing law), dunning loop, subscriptions (renew/cancel), invoices (issue/pay/void, tax), payments (succeed/fail/refund).
+- **Revenue metrics — ✅**: derived MRR/ARR/activeSubs/newMrr/churnedMrr/outstanding/paidThisMonth with lineage (`GET /api/revenue/metrics`), per-account MRR, `revenue.*` events, engine tick.
+- **UI — ✅**: **Revenue** page (`/revenue`, "Finance" nav section) — metrics, quotes, orders, contracts, subscriptions, invoices. Verified live **109/109** (`verify-phase10.sh`, regression-green on the same stack as Phase 11).
 
-Success plans, usage intelligence, loyalty · territory/field service/inventory · no-code platform, marketplace, change-impact analysis.
+## Phase 11 — Customer Success ✅ **COMPLETE**
+
+- **Success & onboarding plans — ✅** (flag `cs.plans`): `SuccessPlan` rows (kind onboarding/success/custom) with **milestones** + **QBRs**, owner + timeline, hydrated with live Phase 7 health/churn, **health-to-playbook at-risk flagging** (health < 60 or churn tier ≥ high → `atRisk`).
+- **Product usage intelligence — ✅** (flag `cs.usage`): `UsageEvent` via API ingest + **event-bus mirror** (meeting.completed → meetings, email.sent → email, …), derived overview (features, last-active, activity trend, seat utilization, `bySource`), **adoption-drop detection** (≥ 50% drop → `usage.adoption_dropped` + admin notify).
+- **Churn prediction v2 + expansion radar — ✅** (flag `cs.churn`): explained deterministic score (health / usage / support / billing / survey signals, factor list = playbook), **snapshot history** (`churn.risk_scored` on tier escalation + notify), **expansion radar** (seat upsell ≥ 90% utilization, plan upsell, cross-sell — `expansion.opportunity_detected`).
+- **Surveys + feedback → roadmap — ✅** (flag `cs.surveys`): NPS/CSAT/CES with per-kind score validation, derived sentiment, results computed at read with lineage, negative feedback auto-promotes to `RoadmapItem` with votes + triage.
+- **Loyalty / advocacy — ✅** (flag `cs.loyalty`): programs (tiers/rewards/pointsRules), members with **derived tiers**, points awards (`loyalty.points_awarded`), referral lifecycle pending → contacted → converted|expired (`referral.converted` awards the referrer).
+- **Engine + UI — ✅**: `startSuccessEngine` (event-bus usage mirror + ticker: adoption scan, churn refresh, referral/loyalty checks); **Success** page (`/success`, "Customer success" nav) — Plans / Usage / Churn / Surveys / Loyalty tabs + roadmap + expansion radar. Verified live **71/71** (`verify-phase11.sh`).
+
+See `docs/32-spec-phase11.md` + `docs/34-customer-success-guide.md` + `docs/33-phase11-build-report.md`.
+
+## Phase 12 — Field Operations ✅ **COMPLETE**
+
+- **Territories — ✅** (flag `field.territories`): `Territory` rows that own accounts + technicians (region, manager, active), hydrated with `accountNames`.
+- **Visits + GPS check-ins + route planning — ✅** (flag `field.visits`): scheduled visits with the `planned → in_transit → checked_in → completed | cancelled` lifecycle; **GPS check-in** records coords + emits `visit.checked_in`; **route optimization** (greedy nearest-neighbor from the technician's last position, haversine per-leg + total km).
+- **Field service — ✅** (flag `field.workorders`): work orders with priority + `slaDueAt`, dispatch (unknown technician → 400), start/complete/cancel; **SLA breach** derived at read + `workorder.sla_breached` on the ticker; completion with `partsUsed` validates + deducts inventory, resets asset maintenance, emits `workorder.completed`.
+- **Assets + maintenance — ✅** (flag `field.inventory`): serialized assets with warranty + `maintenanceIntervalDays`; `maintenanceDue` derived at read, `asset.maintenance_due` on the ticker, `asset.maintenance_done` on logging.
+- **Inventory — ✅**: SKU stock with reorder levels, `lowStock` derived, `inventory.received/consumed` moves (validation → 400), `inventory.reorder_triggered` on the ticker.
+- **Offline sync — ✅**: `POST /api/field/sync` push/pull with **last-write-wins** conflict resolution (spec `docs/38-offline-sync-spec.md`).
+- **Engine + UI — ✅**: `startFieldEngine` ticker (maintenance / SLA / reorder scans + `kind: field` notifications); **Field** page (`/field`, "Field ops" nav) — Overview / Territories / Visits & routes / Work orders / Assets & inventory. Verified live **69/69** (`verify-phase12.sh`) + Phase 10 (109/109) and Phase 11 (71/71) regression green.
+
+See `docs/35-spec-phase12.md` + `docs/37-field-ops-guide.md` + `docs/38-offline-sync-spec.md` + `docs/36-phase12-build-report.md`.
+
+## Phase 13 — Ecosystem ✅ **COMPLETE**
+
+- **Marketplace — ✅** (flag `ecosystem.marketplace`, ADR-025): `MarketplaceListing` rows (app / agent / integration / template with slug, publisher, version, icon, `config` install payload). **Install applies the payload**: `config.agentTemplate` creates a Phase 9 agent (emits `agent.created` with `source: "marketplace"`), `config.webhookEvents` creates a webhook — `App` rows track installed/uninstalled + applied config, `app.installed` / `app.uninstalled` events, install-count rollups.
+- **Partners & channel management — ✅** (flag `ecosystem.partners`): `PartnerAccount` (reseller / referral / technology / consultant, commission rate, active) with **deal registration** (`PartnerDeal`: registered → approved → won|lost; `opportunityId` optional link). Commissions **derived at read** (won × rate); `won` emits `partner.commission_earned`; pipeline value = registered/approved amounts.
+- **Change sets + env promotion — ✅** (flag `ecosystem.changesets`): `ChangeSet` bundles `{ entity, op, key, data }` items (fieldDef / agent / featureFlag); **env diff** (`POST /api/ecosystem/changesets/diff`) proposes items automatically; **promote** replays them into a target environment (creates/updates/deletes, per-item errors recorded) and emits `changeset.promoted` — the ADR-008 env story gains schema/config promotion.
+- **Schema change safety — ✅** (flag `ecosystem.schema`): **change-impact analysis** (`GET /api/ecosystem/schema/impact?objectType=&key=`) scans segments, workflows, agents, lead forms, reports, field permissions + stored record values; **safe delete** refuses fields in use (`Field is in use: N config reference(s), M record value(s)`) and emits `schema.field_deleted` with `via: "safe-delete"` (spec `docs/43-schema-change-safety.md`).
+- **UI — ✅**: **Ecosystem** page (`/ecosystem`, new "Ecosystem" nav section) — Overview / Marketplace / Apps / Partners / Change sets / Schema tabs. Verified live **53/53** (`verify-phase13.sh`) + Phase 10 (109/109), Phase 11 (71/71), Phase 12 (69/69) regression green.
+
+See `docs/39-spec-phase13.md` + `docs/41-developer-platform.md` + `docs/42-marketplace-publishing-guide.md` + `docs/43-schema-change-safety.md` + `docs/40-phase13-build-report.md`.
 
 ## Phase 14 — Enterprise Security ⬜
 
@@ -127,4 +171,9 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Ti
 5. **~~Phase 6~~** — done (Analytics, Forecasting & BI: derived metrics library with data lineage, five dashboards, weighted forecast + snapshot history, predictive v1, report builder, metric thresholds + alerts). Spec `docs/21-spec-phase6.md`, report `docs/22-phase6-build-report.md`.
 6. **~~Phase 7~~** — done (CDP / Customer 360: deterministic identity resolution + unified profiles, behavioral tracking via API + event-bus mirror, the 360 view, relationship graph with influence, explained health engine, right-to-portability export). Spec `docs/23-spec-phase7.md`, guide `docs/25-cdp-guide.md`, report `docs/24-phase7-build-report.md`.
 7. **~~Phase 8~~** — done (AI Assistant Layer: non-agentic copilot — model router with cost/quality/latency preference + EU data-residency pin, the data firewall, record/call/360 summaries, tone-controlled email drafts, explained AI scoring, sentiment + intent, natural-language semantic search with predicates + evidence, confidence flagging with admin alerts, short-term AI memory). Spec `docs/26-spec-phase8.md`, guide `docs/28-ai-guide.md`, report `docs/27-phase8-build-report.md`.
-8. **Phase 9-lite** — AI agent groundwork (agent governance: risk-tiered actions, kill switch, testing lab) over the Phase 8 model router — or Phase 10-lite (Revenue Cloud first slice).
+8. ~~**Phase 9**~~ — done (AI Agent Platform: declarative agents with risk-tiered actions, kill switches, dry-run testing lab, cost metering, AI audit trail, approval queue). Spec `docs/29-spec-phase9.md`, guide `docs/31-agent-governance-guide.md`, report `docs/30-phase9-build-report.md`.
+9. ~~**Phase 10**~~ — done (Revenue Cloud: product catalog + price books + discounts, CPQ quote/order pricing, contracts + dunning, subscriptions + invoices + payments, derived MRR metrics with lineage). Verified **109/109** (`verify-phase10.sh`).
+10. ~~**Phase 11**~~ — done (Customer Success, Retention & Expansion: success plans + milestones + QBRs, product usage intelligence with adoption-drop detection, explained churn prediction v2 + expansion radar, NPS/CSAT/CES with feedback → roadmap, loyalty/referrals). Spec `docs/32-spec-phase11.md`, guide `docs/34-customer-success-guide.md`, report `docs/33-phase11-build-report.md`.
+11. ~~**Phase 12**~~ — done (Field Operations: territories, visits + GPS check-ins + route optimization, work orders + dispatch + SLA, serialized assets + maintenance, inventory + reorder levels, offline sync with conflict resolution). Spec `docs/35-spec-phase12.md`, guide `docs/37-field-ops-guide.md`, offline-sync spec `docs/38-offline-sync-spec.md`, report `docs/36-phase12-build-report.md`.
+12. ~~**Phase 13**~~ — done (Ecosystem: app/agent marketplace with install payloads wired into the Phase 9 engine, partner & channel management with deal registration + derived commissions, change sets + env diff/promote, schema change-impact analysis + safe delete). Spec `docs/39-spec-phase13.md`, guides `docs/41-developer-platform.md` + `docs/42-marketplace-publishing-guide.md` + `docs/43-schema-change-safety.md`, report `docs/40-phase13-build-report.md`.
+13. **Phase 14-lite** — Enterprise Security first slice (MFA + SCIM) — or Phase 15-lite (Business Brain / multi-agent orchestration groundwork).
