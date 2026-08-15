@@ -36,10 +36,10 @@ const createSchema = z.object({
   name: z.string().min(1).max(60),
   role: z.enum(["admin", "manager", "rep"]).optional().default("admin"),
   scopes: z
-    .array(z.enum(["all", "read", "write"]))
+    .array(z.enum(["all", "read", "write", "scim"]))
     .optional()
     .default(["all"])
-    .transform((s) => (s.includes("all") ? ["all"] : s)), // "all" subsumes read+write
+    .transform((s) => (s.includes("all") ? ["all"] : s)), // "all" subsumes read+write; scim = SCIM 2.0 provisioning only
   expiresInDays: z.number().int().min(1).max(3650).optional(),
 });
 router.post(

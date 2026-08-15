@@ -42,6 +42,8 @@ import RevenuePage from "./pages/RevenuePage";
 import SuccessPage from "./pages/SuccessPage";
 import FieldPage from "./pages/FieldPage";
 import EcosystemPage from "./pages/EcosystemPage";
+import SecurityPage from "./pages/SecurityPage";
+import BrainPage from "./pages/BrainPage";
 
 export type FeatureState = {
   enabled: boolean;
@@ -170,6 +172,8 @@ export default function App() {
           <Route path="success" element={<SuccessPage />} />
           <Route path="field" element={<FieldPage />} />
           <Route path="ecosystem" element={<EcosystemPage />} />
+          <Route path="security" element={<SecurityPage />} />
+          <Route path="brain" element={<BrainPage />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

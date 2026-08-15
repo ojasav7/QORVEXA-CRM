@@ -11,6 +11,10 @@ export default function Login() {
   const [form, setForm] = useState({ orgName: "", name: "", email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Phase 14 MFA challenge — the password step returns mfaRequired + a short-
+  // lived mfaToken; the client then completes the handshake with a TOTP code.
+  const [mfa, setMfa] = useState<{ mfaToken: string; email: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
   const [providers, setProviders] = useState<string[]>([]);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -50,10 +54,33 @@ export default function Login() {
     setBusy(true);
     try {
       if (mode === "login") {
-        await post("/api/auth/login", { email: form.email, password: form.password });
+        const d = await post<{ mfaRequired?: boolean; mfaToken?: string; user?: { email?: string } }>("/api/auth/login", { email: form.email, password: form.password });
+        if (d.mfaRequired && d.mfaToken) {
+          // Second factor needed — no session cookie is set yet.
+          setMfa({ mfaToken: d.mfaToken, email: d.user?.email ?? form.email });
+          setMfaCode("");
+          return;
+        }
       } else {
         await post("/api/auth/register", { orgName: form.orgName, name: form.name, email: form.email, password: form.password });
       }
+      await refresh();
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitMfa = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!mfa) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await post("/api/auth/mfa-verify", { mfaToken: mfa.mfaToken, code: mfaCode.trim() });
+      setMfa(null);
       await refresh();
       navigate("/");
     } catch (err) {
@@ -119,7 +146,33 @@ export default function Login() {
           </>
         )}
 
-        <form onSubmit={submit} className="space-y-4">
+        {mfa && (
+          <form onSubmit={submitMfa} className="space-y-4">
+            <div className="rounded-xl bg-accent-500/10 px-4 py-3 text-sm text-accent-300">
+              Two-factor authentication required for <span className="font-medium text-accent-200">{mfa.email}</span>.
+            </div>
+            <input
+              className="input font-mono text-center text-lg tracking-[0.3em]"
+              inputMode="numeric"
+              autoFocus
+              maxLength={6}
+              placeholder="000000"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+              aria-label="Authenticator code"
+              required
+            />
+            {error && <div className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
+            <button className="btn-primary w-full" disabled={busy}>
+              {busy ? <Spinner className="size-4" /> : "Verify & sign in"}
+            </button>
+            <button type="button" onClick={() => { setMfa(null); setError(null); }} className="w-full text-center text-xs text-slate-500 hover:text-slate-300">
+              Back to sign in
+            </button>
+          </form>
+        )}
+
+        {!mfa && <form onSubmit={submit} className="space-y-4">
           {mode === "register" && (
             <>
               <input className="input" placeholder="Company / workspace name" value={form.orgName} onChange={(e) => set("orgName", e.target.value)} required />
@@ -134,7 +187,8 @@ export default function Login() {
           <button className="btn-primary w-full" disabled={busy}>
             {busy ? <Spinner className="size-4" /> : mode === "login" ? "Sign in" : "Create workspace"}
           </button>
-        </form>
+        </form>}
+
 
         <p className="mt-6 text-center text-xs text-slate-600">
           Demo: <span className="font-mono text-slate-500">admin@qorvexa.dev / password123</span> (run <span className="font-mono">npm run seed</span>)

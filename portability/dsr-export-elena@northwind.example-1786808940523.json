@@ -1,0 +1,72 @@
+{
+  "format": "qorvexa-dsr",
+  "type": "export",
+  "exportedAt": "2026-08-15T15:49:00.503Z",
+  "requesterEmail": "elena@northwind.example",
+  "contact": {
+    "id": "6a80893cbb0d03f3021d7885",
+    "orgId": "6a80893bbb0d03f3021d7876",
+    "environment": "production",
+    "ownerId": "6a80893cbb0d03f3021d7879",
+    "accountId": "6a80893cbb0d03f3021d787d",
+    "promotedFrom": null,
+    "firstName": "Elena",
+    "lastName": "Rodriguez",
+    "email": "elena@northwind.example",
+    "phone": "+1 212 555 0111",
+    "title": "VP Operations",
+    "source": "Referral",
+    "status": "contacted",
+    "tags": [
+      "prospect"
+    ],
+    "custom": {
+      "linkedin": "https://linkedin.com/in/elena-rodriguez",
+      "employeeSize": 4200
+    },
+    "visibility": "org",
+    "createdAt": "2026-08-15T15:43:56.755Z",
+    "updatedAt": "2026-08-15T15:43:56.755Z"
+  },
+  "deals": [],
+  "notes": [],
+  "tasks": [],
+  "consent": [
+    {
+      "id": "6a808944bb0d03f3021d7963",
+      "orgId": "6a80893bbb0d03f3021d7876",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "marketing",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-06T15:44:02.882Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-15T15:44:04.604Z",
+      "updatedAt": "2026-08-15T15:44:04.604Z"
+    },
+    {
+      "id": "6a808944bb0d03f3021d7964",
+      "orgId": "6a80893bbb0d03f3021d7876",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "communications",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-06T15:44:02.882Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-15T15:44:04.604Z",
+      "updatedAt": "2026-08-15T15:44:04.604Z"
+    }
+  ]
+}

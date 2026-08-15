@@ -1,0 +1,72 @@
+{
+  "format": "qorvexa-dsr",
+  "type": "export",
+  "exportedAt": "2026-08-15T15:40:31.146Z",
+  "requesterEmail": "elena@northwind.example",
+  "contact": {
+    "id": "6a80870ac11d86693ada88e5",
+    "orgId": "6a80870ac11d86693ada88d6",
+    "environment": "production",
+    "ownerId": "6a80870ac11d86693ada88d9",
+    "accountId": "6a80870ac11d86693ada88dd",
+    "promotedFrom": null,
+    "firstName": "Elena",
+    "lastName": "Rodriguez",
+    "email": "elena@northwind.example",
+    "phone": "+1 212 555 0111",
+    "title": "VP Operations",
+    "source": "Referral",
+    "status": "contacted",
+    "tags": [
+      "prospect"
+    ],
+    "custom": {
+      "linkedin": "https://linkedin.com/in/elena-rodriguez",
+      "employeeSize": 4200
+    },
+    "visibility": "org",
+    "createdAt": "2026-08-15T15:34:34.953Z",
+    "updatedAt": "2026-08-15T15:34:34.953Z"
+  },
+  "deals": [],
+  "notes": [],
+  "tasks": [],
+  "consent": [
+    {
+      "id": "6a80870ec11d86693ada89c3",
+      "orgId": "6a80870ac11d86693ada88d6",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "marketing",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-06T15:34:37.603Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-15T15:34:38.500Z",
+      "updatedAt": "2026-08-15T15:34:38.500Z"
+    },
+    {
+      "id": "6a80870ec11d86693ada89c4",
+      "orgId": "6a80870ac11d86693ada88d6",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "communications",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-06T15:34:37.603Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-15T15:34:38.500Z",
+      "updatedAt": "2026-08-15T15:34:38.500Z"
+    }
+  ]
+}

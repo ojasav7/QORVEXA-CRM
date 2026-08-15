@@ -448,8 +448,9 @@ export type RunInput = {
   entityId: string;
   eventType?: string | null;
   payload?: Record<string, unknown>;
-  trigger: string; // event | manual | test
+  trigger: string; // event | manual | test | orchestrated
   actorId: string;
+  parentRunId?: string | null; // Phase 15 — delegation chain (orchestrator → child run)
 };
 
 /**
@@ -459,7 +460,7 @@ export type RunInput = {
  * are stored proposed and require an admin approval (never auto).
  */
 export async function runAgent(input: RunInput): Promise<any> {
-  const { agent, entity, entityId, eventType, payload, trigger, actorId } = input;
+  const { agent, entity, entityId, eventType, payload, trigger, actorId, parentRunId } = input;
   const orgId = agent.orgId;
   const environment = agent.environment;
 
@@ -487,6 +488,7 @@ export async function runAgent(input: RunInput): Promise<any> {
       orgId,
       environment,
       agentId: agent.id,
+      parentRunId: parentRunId ?? null,
       trigger,
       eventType: eventType ?? null,
       entity,

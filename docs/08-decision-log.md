@@ -982,3 +982,62 @@ schema/config change safely between environments when records already can
 ## Engineering note · Zod `.default()` leaks through `.partial()` on PATCH
 
 Zod applies `.default(...)` even when a schema is used via `.partial()` — so a PATCH that omits a defaulted key silently resets it (we hit this on forms/segments/custom fields: a rename wiped `submitLabel`, `criteria`, `required`). **Rule going forward:** PATCH-facing schemas carry **no** `.default()`; defaults are applied explicitly at the create endpoint (`input.x ?? default`).
+
+---
+
+## ADR-026 · Phase 14 Security = one central module + one enforcement middleware (MFA/sessions/IP/consent/retention/status as rows, everything evented)
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 14 is Enterprise Security, Compliance &
+Governance: SSO/MFA/SCIM, IP restriction, session/device management, data
+masking, retention/deletion policies, GDPR/consent tooling, vendor
+transparency, a status page, and i18n. The architecture questions were
+(1) how to upgrade authentication from signed cookies to revocable sessions
+without breaking every existing route, (2) how to enforce network-level
+policy without scattering checks across controllers, (3) how to make
+compliance artifacts (consent, DSRs, retention, alerts, uptime) first-class
+rows that compose with the event bus, and (4) how SCIM provisioning can reuse
+the token machinery without becoming a backdoor to the whole API.
+
+**Decision:**
+
+1. **One `lib/security.ts` owns the whole surface; one middleware enforces
+   the org policy.** `enforceSecurityPolicy` mounts after
+   `loadSession`/`loadTokenAuth` and evaluates the org's IP allowlist on
+   EVERY `/api/*` request — no per-route scattering. The MFA/session/consent/
+   retention/status/i18n logic lives in the same module so the discipline is
+   central (the ADR-015/017/021/023/024 row-as-config pattern).
+2. **Sessions become DB rows; cookies stay the transport.** The HMAC cookie
+   now embeds a `SecuritySession` id; `resolveSession` re-checks the row
+   (revoked/expired) on every request. Legacy pre-Phase-14 cookies still
+   verify via the old payload, so the upgrade is zero-downtime. Device
+   management = the rows themselves.
+3. **Compliance artifacts are evented rows, not features.** `SecurityAlert`
+   (blueprint entity), `ConsentRecord` (+`consent.updated`),
+   `DataSubjectRequest` (access/export/delete/rectify),
+   `RetentionPolicy` (delete/anonymize → `retention.policy_applied`),
+   `UptimeEvent`/`StatusIncident`, `SubProcessor`, `TranslationEntry` — each
+   is an org × environment row with its lifecycle evented. Derived numbers
+   (uptime %, completeness %, alert counts) are computed on read (ADR-018).
+4. **SCIM rides the token scope, confined.** A bearer `ApiToken` gains a
+   `scim` scope; `loadTokenAuth` treats a scim-only token as NON-session (it
+   never becomes `req.sessionUser`), so SCIM 2.0 endpoints authenticate via
+   `scimAuth` and the token cannot touch the rest of the API. Groups map
+   displayName → role and apply membership roles.
+5. **System actors are the zero ObjectId, not free text.** Every
+   `@db.ObjectId` field (actorId, entityId, createdBy) must hold a real id;
+   service actors use `SYSTEM_ACTOR_ID`/`SCIM_ACTOR_ID`
+   (`000000000000000000000000`) so event persistence can never fail on a
+   malformed ObjectId.
+
+**Consequences:**
+- (+) MFA is a real two-step handshake (no session cookie at the password
+  step), session revocation is immediate and verified, IP restriction blocks
+  + alerts, and every compliance action is auditable in the event log.
+- (+) Feature flags (`sec.*`, `i18n.localization`) gate each area per org ×
+  environment (ADR-008), and the Security page is a single governance
+  surface for the whole discipline.
+- (−) IPv6 support is CIDR-lite (exact + `/0`); encryption at-rest/in-transit
+  remain documented posture flags until multi-region hosting lands; i18n
+  ships the catalog + QA scaffold, not full string translation of every page.

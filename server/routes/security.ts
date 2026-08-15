@@ -46,6 +46,7 @@ import {
   TRANSLATION_CATALOG,
 } from "../lib/security";
 import { emitEvent } from "../lib/events";
+import { requireFeature } from "../lib/features";
 
 const router = Router();
 
@@ -57,7 +58,9 @@ router.get(
     const user = await assertActiveUser(req);
     const [alerts, sessions, consents, dsrs, policies, subProcessors, incidents] = await Promise.all([
       db().securityAlert.findMany({ where: { orgId: user.orgId }, orderBy: { createdAt: "desc" }, take: 20 }),
-      db().securitySession.count({ where: { orgId: user.orgId, revokedAt: null } }),
+      // Prisma on Mongo: `revokedAt: null` equality does NOT match (known
+      // null-filter quirk) — isSet:false is the correct "null or unset" filter.
+      db().securitySession.count({ where: { orgId: user.orgId, revokedAt: { isSet: false } } }),
       db().consentRecord.count({ where: { orgId: user.orgId } }),
       db().dataSubjectRequest.count({ where: { orgId: user.orgId, status: { not: "completed" } } }),
       db().retentionPolicy.count({ where: { orgId: user.orgId } }),
@@ -92,6 +95,7 @@ router.get(
 router.get(
   "/sessions",
   requireAuth,
+  requireFeature("sec.sessions"),
   requireRole("admin", "manager"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -115,6 +119,7 @@ router.get(
 router.post(
   "/sessions/:id/revoke",
   requireAuth,
+  requireFeature("sec.sessions"),
   requireRole("admin", "manager"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -135,14 +140,15 @@ router.post(
 router.post(
   "/sessions/revoke-all",
   requireAuth,
+  requireFeature("sec.sessions"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const res2 = await db().securitySession.updateMany({
-      where: { orgId: user.orgId, revokedAt: null, userId: { not: user.id } },
+      where: { orgId: user.orgId, revokedAt: { isSet: false }, userId: { not: user.id } },
       data: { revokedAt: new Date() },
     });
-    await emitEvent({ orgId: user.orgId, type: "session.revoked", entity: "securitySession", entityId: "all", actorId: user.id, payload: { count: res2.count } });
+    await emitEvent({ orgId: user.orgId, type: "session.revoked", entity: "securitySession", entityId: user.id, actorId: user.id, payload: { count: res2.count } });
     ok(res, { ok: true, revoked: res2.count });
   })
 );
@@ -151,6 +157,7 @@ router.post(
 router.post(
   "/mfa/setup",
   requireAuth,
+  requireFeature("sec.mfa"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     if ((await db().user.findUnique({ where: { id: user.id } }))?.mfaEnabled) {
@@ -167,6 +174,7 @@ router.post(
 router.post(
   "/mfa/verify",
   requireAuth,
+  requireFeature("sec.mfa"),
   asyncHandler(async (req, res) => {
     const body = z.object({ code: z.string().min(6).max(6) }).parse(req.body);
     const user = await assertActiveUser(req);
@@ -198,6 +206,7 @@ router.post(
 router.post(
   "/mfa/disable",
   requireAuth,
+  requireFeature("sec.mfa"),
   asyncHandler(async (req, res) => {
     const body = z.object({ code: z.string().min(6).max(16) }).parse(req.body);
     const user = await assertActiveUser(req);
@@ -216,6 +225,7 @@ router.post(
 router.get(
   "/policy",
   requireAuth,
+  requireFeature("sec.sessions"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     ok(res, { settings: await orgSecuritySettings(user.orgId), clientIp: clientIp(req) });
@@ -225,6 +235,7 @@ router.get(
 router.put(
   "/policy",
   requireAuth,
+  requireFeature("sec.sessions"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -278,6 +289,7 @@ router.post(
 router.get(
   "/consent",
   requireAuth,
+  requireFeature("sec.consent"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const items = await db().consentRecord.findMany({ where: { orgId: user.orgId }, orderBy: { updatedAt: "desc" }, take: 200 });
@@ -290,6 +302,7 @@ router.get(
 router.post(
   "/consent",
   requireAuth,
+  requireFeature("sec.consent"),
   requireRole("admin", "manager"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -310,6 +323,7 @@ router.post(
 router.get(
   "/dsrs",
   requireAuth,
+  requireFeature("sec.consent"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const items = await db().dataSubjectRequest.findMany({ where: { orgId: user.orgId }, orderBy: { submittedAt: "desc" }, take: 100 });
@@ -320,6 +334,7 @@ router.get(
 router.post(
   "/dsrs",
   requireAuth,
+  requireFeature("sec.consent"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const schema = z.object({
@@ -344,6 +359,7 @@ router.post(
 router.post(
   "/dsrs/:id/fulfill",
   requireAuth,
+  requireFeature("sec.consent"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -357,6 +373,7 @@ router.post(
 router.get(
   "/retention",
   requireAuth,
+  requireFeature("sec.retention"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const items = await db().retentionPolicy.findMany({ where: { orgId: user.orgId }, orderBy: { createdAt: "desc" } });
@@ -367,6 +384,7 @@ router.get(
 router.post(
   "/retention",
   requireAuth,
+  requireFeature("sec.retention"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -390,6 +408,7 @@ router.post(
 router.post(
   "/retention/:id/run",
   requireAuth,
+  requireFeature("sec.retention"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -401,6 +420,7 @@ router.post(
 router.post(
   "/retention/:id/toggle",
   requireAuth,
+  requireFeature("sec.retention"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -416,6 +436,7 @@ router.post(
 router.get(
   "/subprocessors",
   requireAuth,
+  requireFeature("sec.consent"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const items = await db().subProcessor.findMany({ where: { orgId: user.orgId }, orderBy: { name: "asc" } });
@@ -426,6 +447,7 @@ router.get(
 router.post(
   "/subprocessors",
   requireAuth,
+  requireFeature("sec.consent"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -447,6 +469,7 @@ router.post(
 router.patch(
   "/subprocessors/:id",
   requireAuth,
+  requireFeature("sec.consent"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -471,17 +494,19 @@ router.patch(
 router.get(
   "/status",
   requireAuth,
+  requireFeature("sec.status"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const days = Number(String(req.query.days ?? "30"));
     const report = await uptimeReport(user.orgId, Number.isFinite(days) && days > 0 ? days : 30);
-    ok(res, { ...report, components: STATUS_COMPONENTS });
+    ok(res, { ...report, componentNames: STATUS_COMPONENTS });
   })
 );
 
 router.post(
   "/status/tick",
   requireAuth,
+  requireFeature("sec.status"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -501,6 +526,7 @@ router.post(
 router.post(
   "/status/incidents",
   requireAuth,
+  requireFeature("sec.status"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -522,6 +548,7 @@ router.post(
 router.post(
   "/status/incidents/:id/resolve",
   requireAuth,
+  requireFeature("sec.status"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -537,6 +564,7 @@ router.post(
 router.get(
   "/i18n",
   requireAuth,
+  requireFeature("i18n.localization"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const i18n = await orgI18n(user.orgId);
@@ -555,6 +583,7 @@ router.get(
 router.put(
   "/i18n",
   requireAuth,
+  requireFeature("i18n.localization"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -568,6 +597,7 @@ router.put(
 router.post(
   "/i18n/seed",
   requireAuth,
+  requireFeature("i18n.localization"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -579,6 +609,7 @@ router.post(
 router.put(
   "/i18n/translations",
   requireAuth,
+  requireFeature("i18n.localization"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -600,6 +631,7 @@ router.put(
 router.get(
   "/scim",
   requireAuth,
+  requireFeature("sec.scim"),
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
@@ -616,6 +648,7 @@ router.get(
 router.post(
   "/debug/ip-allowed",
   requireAuth,
+  requireFeature("sec.sessions"),
   asyncHandler(async (req, res) => {
     const user = await assertActiveUser(req);
     const settings = await orgSecuritySettings(user.orgId);

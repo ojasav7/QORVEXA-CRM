@@ -96,6 +96,13 @@ import ecosystemRoutes from "./routes/ecosystem";
 import securityRoutes from "./routes/security";
 import scimRoutes from "./routes/scim";
 import { startSecurityEngine, enforceSecurityPolicy } from "./lib/security";
+// Phase 15 · Differentiators (Business Brain, Time Machine, Simulator, …)
+import { startBrainEngine } from "./lib/brain";
+import { startMemoryEngine } from "./lib/memory";
+import { startOrchestrationEngine } from "./lib/orchestrate";
+import { startTimeMachineEngine } from "./lib/timemachine";
+import { startSimulatorEngine } from "./lib/simulate";
+import brainRoutes from "./routes/brain";
 import { requireFeature } from "./lib/features";
 import { objectRouter } from "./routes/object-routes";
 import { createObjectService } from "./lib/object-service";
@@ -204,6 +211,8 @@ app.use("/api/field", fieldOpsRoutes); // per-route gates (territories/visits/wo
 app.use("/api/ecosystem", ecosystemRoutes); // per-route gates (marketplace/partners/changesets/schema)
 // Phase 14 · Enterprise Security (per-route gates: sec.mfa/sessions/scim/consent/retention/status + i18n)
 app.use("/api/security", securityRoutes);
+// Phase 15 · Differentiators (per-route gates: diff.brain/graph/memory/orchestration/timemachine/simulator/builder/command/ubq)
+app.use("/api/brain", brainRoutes);
 // SCIM 2.0 provisioning — bearer ApiToken with the `scim` scope (RFC 7644).
 app.use("/api/scim/v2", scimRoutes);
 // Public (no auth) — tracking pixels/click links + public booking pages.
@@ -254,6 +263,14 @@ startSuccessEngine();
 startFieldEngine();
 // Phase 14: the security engine (retention scan + uptime ticks + session hygiene).
 startSecurityEngine();
+// Phase 15: the differentiator engines — Business Brain scans, org-memory
+// learning + TTL purge, multi-agent orchestration, Time Machine daily
+// snapshots, and the simulator (on-demand).
+startBrainEngine();
+startMemoryEngine();
+startOrchestrationEngine();
+startTimeMachineEngine();
+startSimulatorEngine();
 
 const server = app.listen(env.port, () => {
   console.log(`\n  QORVEXA CRM  ·  http://localhost:${env.port}`);

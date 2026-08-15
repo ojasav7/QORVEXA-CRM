@@ -1187,7 +1187,8 @@ model AgentRun {
   orgId         String   @db.ObjectId
   environment   String   @default("production")
   agentId       String   @db.ObjectId
-  trigger       String   @default("manual") // event | manual | test
+  parentRunId   String?  @db.ObjectId // Phase 15 — set when this run was delegated by an orchestrator/agent
+  trigger       String   @default("manual") // event | manual | test | orchestrated
   eventType     String? // the event that fired this run (when triggered by the bus)
   entity        String // contact | lead | opportunity | ticket | …
   entityId      String   @db.ObjectId
@@ -2214,9 +2215,7 @@ model ScimGroup {
   updatedAt   DateTime @default(now())
 
   @@index([orgId])
-}
-
-// i18n — org translation catalog + localization QA (translation completeness).
+}// i18n — org translation catalog + localization QA (translation completeness).
 model TranslationEntry {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   orgId       String   @db.ObjectId
@@ -2229,4 +2228,149 @@ model TranslationEntry {
 
   @@unique([orgId, locale, key])
 }
+
+// ── Phase 15 · Differentiators (the "1-of-1" layer) ────────────────────────
+// The blueprint's differentiators: the Business Brain (org-wide AI synthesis),
+// Deal X-Ray, Opportunity Radar, AI Deal Detective, CRM Time Machine, the
+// What-If simulator, org memory, multi-agent orchestration, AI-built
+// generators, Universal Business Query, and the voice/computer-use console.
+// Entities added: BusinessBrainInsight · TimeMachineSnapshot · SimulationRun
+// (blueprint) + OrgMemoryEntry · AgentOrchestrator · AgentDelegation.
+// Events added: insight.generated · simulation.completed · snapshot.created
+// (blueprint) + memory.recorded · opportunity.detected · risk.detected ·
+// agent.delegated.
+
+// The Business Brain's insight ledger — every synthesized opportunity / risk /
+// anomaly / recommendation across modules, deduped by fingerprint and
+// actioned through the ack/dismiss/action lifecycle. (ADR-027)
+model BusinessBrainInsight {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  category       String   @default("recommendation") // opportunity | risk | anomaly | recommendation
+  severity       String   @default("medium") // info | low | medium | high | critical
+  title          String
+  summary        String?
+  source         String   @default("brain") // the module/area the insight came from (deals, pipeline, churn, radar, …)
+  entity         String?  // the object type the insight is about (opportunity, account, …)
+  entityId       String?  // the object id (kept as a plain string — may be "org" for org-wide insights)
+  evidence       Json     @default("[]") // [{ kind, note, at? }]
+  recommendation String?
+  fingerprint    String   @unique // dedup key — re-scanning upserts instead of duplicating
+  status         String   @default("open") // open | acknowledged | actioned | dismissed
+  createdBy      String   @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, status])
+  @@index([orgId, environment, category])
+}
+
+// The CRM Time Machine — persisted point-in-time snapshots of the full org or
+// a single record (reconstruction from the audit trail is derived on read;
+// snapshots are the durable retention substrate). Pruned by retentionDays.
+model TimeMachineSnapshot {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String    @db.ObjectId
+  environment    String    @default("production")
+  scope          String    @default("record") // full | record
+  entity         String? // record scope: the object type
+  entityId       String? // record scope: the object id
+  snapshotAt     DateTime  @default(now())
+  data           Json      @default("{}") // the captured state (full = all collections; record = one row)
+  retentionUntil DateTime?
+  createdBy      String    @db.ObjectId
+  createdAt      DateTime  @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, scope])
+}
+
+// The What-If simulator — a persisted run of one deterministic scenario
+// (pricing / discount / churn / hiring / mix) against real org data.
+model SimulationRun {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String   @db.ObjectId
+  environment String   @default("production")
+  name        String
+  scenario    String   @default("pricing") // pricing | discount | churn | hiring | mix
+  params      Json     @default("{}")
+  results     Json     @default("{}")
+  summary     String?
+  status      String   @default("completed") // completed | failed
+  error       String?
+  createdBy   String   @db.ObjectId
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, environment])
+}
+
+// Organizational / customer memory — persistent AI memory across every
+// interaction. The memory engine learns facts + observations from the event
+// bus (email.replied → "prefers email", contract signed → renewal date, …)
+// and admins/users can add manual entries. Expired rows are purged.
+model OrgMemoryEntry {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  orgId       String    @db.ObjectId
+  environment String    @default("production")
+  scope       String    @default("org") // org | account | contact | opportunity | lead | ticket
+  scopeId     String?   // the record id (null for org-wide memory)
+  kind        String    @default("fact") // fact | observation | insight
+  content     String
+  sourceEvent String? // the event type that learned this (null for manual entries)
+  fingerprint String    @unique // dedup key (scope + sourceEvent + content hash)
+  confidence  Int       @default(70)
+  expiresAt   DateTime? // TTL — the engine ticker purges expired rows
+  createdBy   String    @db.ObjectId
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, scope, scopeId])
+}
+
+// Multi-agent orchestration — an orchestrator fans a trigger out to child
+// agents (parallel or sequential). Child agents are Phase 9 agents; each
+// delegation records a parent→child AgentRun chain (AgentRun.parentRunId).
+model AgentOrchestrator {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  name           String
+  description    String?
+  trigger        Json     @default("{}") // { kind: "event"|"manual", event: "lead.created" }
+  childAgentIds  Json     @default("[]") // Phase 9 agent ids
+  mode           String   @default("sequential") // parallel | sequential
+  active         Boolean  @default(true)
+  runCount       Int      @default(0)
+  createdBy      String   @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@index([orgId, environment])
+  @@index([orgId, environment, active])
+}
+
+// One delegated run: orchestrator → child agent → child AgentRun.
+model AgentDelegation {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  orgId          String   @db.ObjectId
+  environment    String   @default("production")
+  orchestratorId String   @db.ObjectId
+  parentRunId    String?  @db.ObjectId // the run that delegated (agent-to-agent chains)
+  childAgentId   String   @db.ObjectId
+  childRunId     String?  @db.ObjectId // the child AgentRun (null when skipped/failed pre-run)
+  entity         String
+  entityId       String   @db.ObjectId
+  status         String   @default("delegated") // delegated | skipped | failed
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  @@index([orgId, orchestratorId, createdAt])
+  @@index([orgId, environment])
+}
+
+
+
 

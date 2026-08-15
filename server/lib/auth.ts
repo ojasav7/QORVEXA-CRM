@@ -114,6 +114,15 @@ export async function loadTokenAuth(req: Request, _res: Response, next: NextFunc
           next();
           return;
         }
+        // Phase 14: scim-scoped tokens authenticate ONLY the SCIM 2.0 routes
+        // (server/routes/scim.ts → scimAuth) — they must not become a session
+        // user on the rest of the API.
+        if (only("scim")) {
+          (req as any).sessionUser = null;
+          (req as any).tokenAuth = tokenUser;
+          next();
+          return;
+        }
         (req as any).sessionUser = {
           id: tokenUser.id as string,
           orgId: tokenUser.orgId as string,

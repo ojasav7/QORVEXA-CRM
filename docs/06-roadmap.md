@@ -152,9 +152,21 @@ See `docs/35-spec-phase12.md` + `docs/37-field-ops-guide.md` + `docs/38-offline-
 
 See `docs/39-spec-phase13.md` + `docs/41-developer-platform.md` + `docs/42-marketplace-publishing-guide.md` + `docs/43-schema-change-safety.md` + `docs/40-phase13-build-report.md`.
 
-## Phase 14 — Enterprise Security ⬜
+## Phase 14 — Enterprise Security ✅ **COMPLETE**
 
-SSO/MFA/SCIM, encryption/masking, GDPR/consent, vendor transparency, WCAG 2.2 AA, status page, i18n. Auth/permissions foundation shipped.
+- **MFA — ✅** (flag `sec.mfa`, ADR-026): self-service TOTP (RFC 6238) setup/verify/disable + 10 single-use recovery codes (sha256 at rest); the two-step login handshake (`mfaRequired` → `/api/auth/mfa-verify`, 10-min signed challenge); failed second factor → high-severity alert + `security.threat_detected`; org-wide `requireMfa` policy.
+- **DB-backed sessions + device management — ✅** (flag `sec.sessions`): every login issues a `SecuritySession` row (device/IP/lastSeen/expiry); the cookie embeds the session id, re-checked on every request; per-session revoke + revoke-all + engine hygiene tick; legacy-cookie fallback keeps the upgrade zero-downtime.
+- **Org security policy + IP restriction — ✅**: IP/CIDR allowlist enforced by one middleware on every `/api/*` request (blocked → 403 + alert); encryption posture (`atRest`/`inTransit`/`fieldLevel`) surfaced on the policy + overview.
+- **Security alerts — ✅** (blueprint entity): severity/category ledger (`SecurityAlert`) with acknowledge flow — MFA failures, blocked IPs, DSR activity, engine issues all land here.
+- **Consent + privacy center — ✅** (flag `sec.consent`): purpose-based `ConsentRecord`s (`consent.updated`) + **data-subject requests** (access/export/delete/rectify) with admin fulfillment (`dsr.submitted` / `dsr.completed`; export bundles to `portability/`).
+- **Retention/deletion policies — ✅** (flag `sec.retention`): delete or anonymize stale contact/lead/account/opportunity/ticket rows past a cutoff; engine + manual run; `retention.policy_applied`.
+- **Vendor / sub-processor transparency — ✅**: `SubProcessor` register (purpose, region, data categories, link) surfaced on the Security page; `subprocessor.updated`.
+- **Status page / uptime SLA — ✅** (flag `sec.status`): engine uptime ticks (api/webhooks/email/app), derived per-component % + 30/90-day totals on read, incidents with create/resolve events.
+- **SCIM 2.0 provisioning — ✅** (flag `sec.scim`): `/api/scim/v2/Users|Groups|ServiceProviderConfig|Schemas` behind a **scim-scoped** bearer token (confined — never a session user on the rest of the API); groups `displayName` → role; deactivation disables; `scim.*` events.
+- **i18n + localization QA — ✅** (`i18n.localization`): org locale/timezone/currency config (validated + `i18n.config_updated`) + a 44-key translation catalog with per-locale completeness %; admin custom translations + re-seed.
+- **UI + a11y — ✅**: **Security & governance** page (`/security`, new nav section, 11 tabs) + the MFA step on Login; Phase 14 UI built to WCAG 2.2 AA (labels, aria, keyboard, focus rings) — conformance report `docs/48-accessibility-conformance.md`. Verified live **106/106** (`verify-phase14.sh`) + Phase 13 (53/53) and Phase 12 (69/69) regression green.
+
+See `docs/44-spec-phase14.md` + `docs/45-phase14-build-report.md` + `docs/46-security-whitepaper.md` + `docs/47-compliance-matrix.md` + `docs/48-accessibility-conformance.md` + ADR-026.
 
 ## Phase 15 — Differentiators ⬜
 
@@ -176,4 +188,5 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Ti
 10. ~~**Phase 11**~~ — done (Customer Success, Retention & Expansion: success plans + milestones + QBRs, product usage intelligence with adoption-drop detection, explained churn prediction v2 + expansion radar, NPS/CSAT/CES with feedback → roadmap, loyalty/referrals). Spec `docs/32-spec-phase11.md`, guide `docs/34-customer-success-guide.md`, report `docs/33-phase11-build-report.md`.
 11. ~~**Phase 12**~~ — done (Field Operations: territories, visits + GPS check-ins + route optimization, work orders + dispatch + SLA, serialized assets + maintenance, inventory + reorder levels, offline sync with conflict resolution). Spec `docs/35-spec-phase12.md`, guide `docs/37-field-ops-guide.md`, offline-sync spec `docs/38-offline-sync-spec.md`, report `docs/36-phase12-build-report.md`.
 12. ~~**Phase 13**~~ — done (Ecosystem: app/agent marketplace with install payloads wired into the Phase 9 engine, partner & channel management with deal registration + derived commissions, change sets + env diff/promote, schema change-impact analysis + safe delete). Spec `docs/39-spec-phase13.md`, guides `docs/41-developer-platform.md` + `docs/42-marketplace-publishing-guide.md` + `docs/43-schema-change-safety.md`, report `docs/40-phase13-build-report.md`.
-13. **Phase 14-lite** — Enterprise Security first slice (MFA + SCIM) — or Phase 15-lite (Business Brain / multi-agent orchestration groundwork).
+13. ~~**Phase 14**~~ — done (Enterprise Security: DB-backed sessions + device management, self-service MFA with a two-step login, IP/CIDR allowlist + `security.threat_detected` alerts, security alert ledger, consent + privacy center with DSRs, retention/delete policies, vendor/sub-processor transparency, uptime status page + incidents, SCIM 2.0 provisioning with a confined scim scope, i18n + localization QA, WCAG 2.2 AA workstream). Spec `docs/44-spec-phase14.md`, report `docs/45-phase14-build-report.md`, whitepaper `docs/46-security-whitepaper.md`, compliance matrix `docs/47-compliance-matrix.md`, a11y report `docs/48-accessibility-conformance.md`.
+14. **Phase 15-lite** — Business Brain / multi-agent orchestration groundwork — or a Phase 15 slice (Deal X-Ray, Opportunity Radar, AI Deal Detective).

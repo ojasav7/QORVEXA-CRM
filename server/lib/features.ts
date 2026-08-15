@@ -332,6 +332,70 @@ export const KNOWN_FEATURES: FeatureDef[] = [
     enabledDefault: true,
     plans: ["pro", "enterprise"],
   },
+  // Phase 15 · Differentiators (the "1-of-1" layer)
+  {
+    key: "diff.brain",
+    label: "Business Brain",
+    description: "Phase 15 — the org-wide AI layer: synthesized insights (opportunities / risks / anomalies / recommendations) across every module, Deal X-Ray health scoring, the AI Deal Detective root-cause timeline, and the Opportunity Radar early-warning feed.",
+    enabledDefault: true,
+    plans: ["enterprise"],
+  },
+  {
+    key: "diff.graph",
+    label: "Relationship graph v2",
+    description: "Phase 15 — full buying-committee mapping: influence scoring plus derived roles (champion / economic buyer / technical / blocker), committee coverage, and missing-role gaps.",
+    enabledDefault: true,
+    plans: ["pro", "enterprise"],
+  },
+  {
+    key: "diff.memory",
+    label: "Organizational memory",
+    description: "Phase 15 — persistent AI memory across every interaction: the memory engine learns facts from the event bus (email.replied → prefers email, contract signed → renewal date) plus manual entries, with TTL + dedup.",
+    enabledDefault: true,
+    plans: ["enterprise"],
+  },
+  {
+    key: "diff.orchestration",
+    label: "Multi-agent orchestration",
+    description: "Phase 15 — agents delegate to each other: orchestrators fan an event out to child Phase 9 agents (parallel / sequential) with a parent→child run chain (agent.delegated).",
+    enabledDefault: true,
+    plans: ["enterprise"],
+  },
+  {
+    key: "diff.timemachine",
+    label: "CRM Time Machine",
+    description: "Phase 15 — reconstruct the full historical state of any record as of any date from the audit trail, plus durable point-in-time snapshots with retention pruning and state diffing.",
+    enabledDefault: true,
+    plans: ["enterprise"],
+  },
+  {
+    key: "diff.simulator",
+    label: "What-if simulator",
+    description: "Phase 15 — the Business Digital Twin: deterministic pricing / discount / churn / hiring / mix simulations against real org data (simulation.completed).",
+    enabledDefault: true,
+    plans: ["enterprise"],
+  },
+  {
+    key: "diff.builder",
+    label: "AI-built generators",
+    description: "Phase 15 — natural-language → working configuration: build workflows, agents, reports, and custom fields from a plain-English prompt.",
+    enabledDefault: true,
+    plans: ["pro", "enterprise"],
+  },
+  {
+    key: "diff.command",
+    label: "Voice & computer-use console",
+    description: "Phase 15 — operate the CRM by natural-language command (voice transcript) or simulated computer-use actions, with risk-tiered execution (🟢 auto / 🟡 approval / 🔴 human).",
+    enabledDefault: true,
+    plans: ["enterprise"],
+  },
+  {
+    key: "diff.ubq",
+    label: "Universal Business Query",
+    description: "Phase 15 — one search bar answering any cross-object question: natural language → real aggregations (total pipeline by owner, won deals this quarter, top accounts by MRR) with evidence.",
+    enabledDefault: true,
+    plans: ["pro", "enterprise"],
+  },
 ];
 
 export type FeatureState = FeatureDef & { enabled: boolean; source: "settings" | "featureFlag" | "default" };

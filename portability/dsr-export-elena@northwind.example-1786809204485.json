@@ -1,0 +1,72 @@
+{
+  "format": "qorvexa-dsr",
+  "type": "export",
+  "exportedAt": "2026-08-15T15:53:24.471Z",
+  "requesterEmail": "elena@northwind.example",
+  "contact": {
+    "id": "6a808b3f53386a2fb97abeb9",
+    "orgId": "6a808b3f53386a2fb97abeaa",
+    "environment": "production",
+    "ownerId": "6a808b3f53386a2fb97abead",
+    "accountId": "6a808b3f53386a2fb97abeb1",
+    "promotedFrom": null,
+    "firstName": "Elena",
+    "lastName": "Rodriguez",
+    "email": "elena@northwind.example",
+    "phone": "+1 212 555 0111",
+    "title": "VP Operations",
+    "source": "Referral",
+    "status": "contacted",
+    "tags": [
+      "prospect"
+    ],
+    "custom": {
+      "linkedin": "https://linkedin.com/in/elena-rodriguez",
+      "employeeSize": 4200
+    },
+    "visibility": "org",
+    "createdAt": "2026-08-15T15:52:31.760Z",
+    "updatedAt": "2026-08-15T15:52:31.760Z"
+  },
+  "deals": [],
+  "notes": [],
+  "tasks": [],
+  "consent": [
+    {
+      "id": "6a808b4253386a2fb97abf97",
+      "orgId": "6a808b3f53386a2fb97abeaa",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "marketing",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-06T15:52:33.927Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-15T15:52:34.885Z",
+      "updatedAt": "2026-08-15T15:52:34.885Z"
+    },
+    {
+      "id": "6a808b4253386a2fb97abf98",
+      "orgId": "6a808b3f53386a2fb97abeaa",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "communications",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-06T15:52:33.927Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-15T15:52:34.885Z",
+      "updatedAt": "2026-08-15T15:52:34.885Z"
+    }
+  ]
+}

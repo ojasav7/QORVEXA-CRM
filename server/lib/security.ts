@@ -211,22 +211,22 @@ export type OrgSecuritySettings = {
 export async function orgSecuritySettings(orgId: string): Promise<OrgSecuritySettings> {
   const org = await db().organization.findUnique({ where: { id: orgId } });
   const s = ((org?.settings ?? {}) as Record<string, unknown>).security as Record<string, unknown> | undefined;
+  const enc = (s?.encryption ?? {}) as Record<string, unknown>;
+  const fieldLevel = Array.isArray(enc.fieldLevel) ? (enc.fieldLevel as string[]).map(String) : [];
   return {
     ipRestrictionEnabled: Boolean(s?.ipRestrictionEnabled),
     ipAllowlist: Array.isArray(s?.ipAllowlist) ? (s.ipAllowlist as string[]).map(String) : [],
     requireMfa: Boolean(s?.requireMfa),
     sessionTtlDays: typeof s?.sessionTtlDays === "number" ? (s.sessionTtlDays as number) : 30,
-    encryption: {
-      atRest: s?.encryption ? Boolean((s.encryption as Record<string, unknown>).atRest) : false,
-      inTransit: s?.encryption ? Boolean((s.encryption as Record<string, unknown>).inTransit) : false,
-      fieldLevel: Array.isArray(s?.encryption && (s.encryption as Record<string, unknown>).fieldLevel)
-        ? ((s.encryption as Record<string, unknown>).fieldLevel as string[]).map(String)
-        : [],
-    },
+    encryption: { atRest: Boolean(enc.atRest), inTransit: Boolean(enc.inTransit), fieldLevel },
   };
 }
 
-export async function updateSecuritySettings(orgId: string, patch: Partial<OrgSecuritySettings>) {
+export type OrgSecurityPatch = Partial<Omit<OrgSecuritySettings, "encryption">> & {
+  encryption?: Partial<OrgSecuritySettings["encryption"]>;
+};
+
+export async function updateSecuritySettings(orgId: string, patch: OrgSecurityPatch) {
   const org = await db().organization.findUnique({ where: { id: orgId } });
   if (!org) throw notFound("Organization not found");
   const settings = (org.settings ?? {}) as Record<string, unknown>;
@@ -237,7 +237,7 @@ export async function updateSecuritySettings(orgId: string, patch: Partial<OrgSe
     encryption: { ...current.encryption, ...(patch.encryption ?? {}) },
   };
   settings.security = next;
-  await db().organization.update({ where: { id: orgId }, data: { settings } });
+  await db().organization.update({ where: { id: orgId }, data: { settings: settings as object } });
   return next;
 }
 
@@ -272,6 +272,13 @@ export function ipAllowed(ip: string, allowlist: string[]): boolean {
 // Security alerts (blueprint entity) + security.threat_detected
 // ─────────────────────────────────────────────────────────────────────────────
 
+// System/service actors aren't real users — use the zero ObjectId (a valid
+// 24-hex string) so `actorId`-typed columns never reject the write.
+export const SYSTEM_ACTOR_ID = "000000000000000000000000";
+
+// SCIM provisioning acts on behalf of the identity provider, not a user row.
+export const SCIM_ACTOR_ID = "000000000000000000000000";
+
 export type NewAlert = {
   orgId: string;
   environment?: string;
@@ -293,7 +300,7 @@ export async function createSecurityAlert(a: NewAlert): Promise<void> {
       title: a.title,
       message: a.message,
       details: (a.details ?? {}) as object,
-      createdBy: a.actorId ?? "system",
+      createdBy: a.actorId ?? SYSTEM_ACTOR_ID,
     },
   });
   // Threats (severity ≥ medium) go to the event bus — the blueprint event.
@@ -304,7 +311,7 @@ export async function createSecurityAlert(a: NewAlert): Promise<void> {
       type: "security.threat_detected",
       entity: "securityAlert",
       entityId: alert.id,
-      actorId: a.actorId ?? alert.createdBy,
+      actorId: a.actorId ?? SYSTEM_ACTOR_ID,
       payload: { severity: alert.severity, category: alert.category, title: alert.title, message: alert.message },
     });
   }
@@ -471,7 +478,7 @@ export async function fulfillDsr(orgId: string, dsrId: string, actorId: string, 
   }
   await db().dataSubjectRequest.update({
     where: { id: dsr.id },
-    data: { status: "completed", completedAt: new Date(), notes: notes ?? dsr.notes, meta },
+    data: { status: "completed", completedAt: new Date(), notes: notes ?? dsr.notes, meta: meta as object },
   });
   await emitEvent({
     orgId,
@@ -659,7 +666,7 @@ export async function scimCreateUser(orgId: string, body: {
       scimExternalId: body.externalId,
     },
   });
-  await emitEvent({ orgId, type: "scim.user_provisioned", entity: "user", entityId: user.id, actorId: "scim", payload: { email } });
+  await emitEvent({ orgId, type: "scim.user_provisioned", entity: "user", entityId: user.id, actorId: SCIM_ACTOR_ID, payload: { email } });
   return user;
 }
 
@@ -673,7 +680,7 @@ export async function scimPatchUser(orgId: string, id: string, patch: { active?:
     data.name = [patch.name.givenName, patch.name.familyName].filter(Boolean).join(" ") || user.name;
   }
   await db().user.update({ where: { id }, data });
-  await emitEvent({ orgId, type: "scim.user_updated", entity: "user", entityId: id, actorId: "scim", payload: { active: patch.active } });
+  await emitEvent({ orgId, type: "scim.user_updated", entity: "user", entityId: id, actorId: SCIM_ACTOR_ID, payload: { active: patch.active } });
   return { ok: true };
 }
 
@@ -706,7 +713,7 @@ export async function scimCreateGroup(orgId: string, body: { displayName?: strin
   if (memberIds.length) {
     await db().user.updateMany({ where: { id: { in: memberIds }, orgId }, data: { role } });
   }
-  await emitEvent({ orgId, type: "scim.group_provisioned", entity: "scimGroup", entityId: group.id, actorId: "scim", payload: { displayName, role, members: memberIds.length } });
+  await emitEvent({ orgId, type: "scim.group_provisioned", entity: "scimGroup", entityId: group.id, actorId: SCIM_ACTOR_ID, payload: { displayName, role, members: memberIds.length } });
   return group;
 }
 
@@ -719,7 +726,7 @@ export async function scimUpdateGroup(orgId: string, id: string, body: { display
   const memberIds = (body.members ?? []).map((m) => m.value ?? "").filter(Boolean);
   await db().scimGroup.update({ where: { id }, data: { displayName, role, memberIds: memberIds as object } });
   if (memberIds.length) await db().user.updateMany({ where: { id: { in: memberIds }, orgId }, data: { role } });
-  await emitEvent({ orgId, type: "scim.group_updated", entity: "scimGroup", entityId: id, actorId: "scim", payload: { displayName, role } });
+  await emitEvent({ orgId, type: "scim.group_updated", entity: "scimGroup", entityId: id, actorId: SCIM_ACTOR_ID, payload: { displayName, role } });
   return { ok: true };
 }
 
@@ -759,7 +766,7 @@ export async function updateOrgI18n(orgId: string, patch: Partial<OrgI18n>) {
     throw badRequest(`Unknown timezone: ${next.timezone}`);
   }
   settings.i18n = next;
-  await db().organization.update({ where: { id: orgId }, data: { settings } });
+  await db().organization.update({ where: { id: orgId }, data: { settings: settings as object } });
   return next;
 }
 
@@ -940,9 +947,11 @@ export function startSecurityEngine() {
         } catch {
           await recordUptimeTick(org.id, "api", "down", undefined, "health check failed");
         }
-        // Session hygiene — revoke sessions past their TTL.
+        // Session hygiene — revoke sessions past their TTL. (isSet:false = the
+        // Mongo-correct way to match "revokedAt is null" — a plain null filter
+        // silently matches nothing on Prisma+Mongo.)
         await db().securitySession.updateMany({
-          where: { orgId: org.id, revokedAt: null, expiresAt: { lt: new Date() } },
+          where: { orgId: org.id, revokedAt: { isSet: false }, expiresAt: { lt: new Date() } },
           data: { revokedAt: new Date() },
         });
       }

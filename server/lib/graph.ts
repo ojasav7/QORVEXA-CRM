@@ -180,3 +180,72 @@ export async function graphForContact(orgId: string, environment: string, contac
     }),
   };
 }
+
+// ── Relationship Graph v2 (Phase 15) — full buying-committee mapping ───────
+// v2 layers DERIVED ROLES + COVERAGE on top of the v1 influence graph: each
+// committee member is classified (champion / economic_buyer / technical /
+// coach / blocker) from title + involvement signals, coverage measures how
+// many of the expected roles are filled, and gaps flag missing roles.
+
+const BUYER_TITLE = /\b(owner|ceo|coo|cfo|cio|cmo|president|founder|vp|vice president|executive|head of|chief)\b/i;
+const TECH_TITLE = /\b(cto|cio|engineer|developer|architect|it |it\b|technical|analyst|admin|infrastructure)\b/i;
+const BLOCKER_TITLE = /\b(procurement|legal|counsel|compliance)\b/i;
+
+function roleFor(member: { title?: string | null; influence: number; primary: boolean; blockerSignal: boolean }): string {
+  if (member.blockerSignal) return "blocker";
+  if (member.primary || member.influence >= 60) return "champion";
+  const title = member.title ?? "";
+  if (BLOCKER_TITLE.test(title)) return "blocker";
+  if (BUYER_TITLE.test(title)) return "economic_buyer";
+  if (TECH_TITLE.test(title)) return "technical";
+  return "coach";
+}
+
+const EXPECTED_ROLES = ["champion", "economic_buyer", "technical", "coach"];
+
+/** The deal's buying committee with derived roles + coverage (v2). */
+export async function graphV2ForDeal(orgId: string, environment: string, dealId: string) {
+  const base = await graphForDeal(orgId, environment, dealId);
+  const contactIds = base.committee.map((c: any) => c.contact.id);
+  const openTickets = contactIds.length
+    ? await db().ticket.findMany({ where: { orgId, environment, contactId: { in: contactIds }, status: { notIn: ["resolved", "closed"] } }, select: { contactId: true } })
+    : [];
+  const ticketMap = new Map<string, number>();
+  for (const t of openTickets) ticketMap.set(t.contactId ?? "", (ticketMap.get(t.contactId ?? "") ?? 0) + 1);
+
+  const roles: string[] = [];
+  const committee = base.committee.map((m: any) => {
+    const blockerSignal = (ticketMap.get(m.contact.id) ?? 0) >= 2;
+    const role = roleFor({ title: m.contact.title, influence: m.influence, primary: m.primary, blockerSignal });
+    roles.push(role);
+    return { ...m, role, openTickets: ticketMap.get(m.contact.id) ?? 0 };
+  });
+  const filled = new Set(roles);
+  const gaps = EXPECTED_ROLES.filter((r) => !filled.has(r));
+  const coverage = Math.round((roles.filter((r) => r !== "coach").length / EXPECTED_ROLES.length) * 100);
+  return { ...base, committee, roles: filled, coverage, gaps };
+}
+
+/** The account's committee with derived roles + coverage (v2). */
+export async function graphV2ForAccount(orgId: string, environment: string, accountId: string) {
+  const base = await graphForAccount(orgId, environment, accountId);
+  const contactIds = base.contacts.map((c: any) => c.id);
+  const openTickets = contactIds.length
+    ? await db().ticket.findMany({ where: { orgId, environment, contactId: { in: contactIds }, status: { notIn: ["resolved", "closed"] } }, select: { contactId: true } })
+    : [];
+  const ticketMap = new Map<string, number>();
+  for (const t of openTickets) ticketMap.set(t.contactId ?? "", (ticketMap.get(t.contactId ?? "") ?? 0) + 1);
+
+  const roles: string[] = [];
+  const contacts = base.contacts.map((c: any) => {
+    const blockerSignal = (ticketMap.get(c.id) ?? 0) >= 2;
+    const primary = c.deals?.some((d: any) => d.primary) ?? false;
+    const role = roleFor({ title: c.title, influence: c.totalInfluence, primary, blockerSignal });
+    roles.push(role);
+    return { ...c, role, openTickets: ticketMap.get(c.id) ?? 0 };
+  });
+  const filled = new Set(roles);
+  const gaps = EXPECTED_ROLES.filter((r) => !filled.has(r));
+  const coverage = Math.round((roles.filter((r) => r !== "coach").length / EXPECTED_ROLES.length) * 100);
+  return { ...base, contacts, roles: filled, coverage, gaps };
+}

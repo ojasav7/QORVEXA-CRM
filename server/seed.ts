@@ -19,6 +19,8 @@ import { ensureDefaultModels, saveInsight, scoreLead, summarizeRecord } from "./
 import { runAgent } from "./lib/agents";
 // Phase 11 · Customer Success
 import { addSurveyResponse, createProgram, enrollMember } from "./lib/success";
+// Phase 14 · Enterprise Security, Compliance & Governance
+import { seedTranslationCatalog } from "./lib/security";
 
 const ORG_EMAIL = "admin@qorvexa.dev";
 const ORG_NAME = "Qorvexa Demo Inc";
@@ -1334,6 +1336,129 @@ async function main() {
   const ecosystemDeals = await p.partnerDeal.count({ where: { orgId, environment: "production" } });
   const ecosystemChangeSets = await p.changeSet.count({ where: { orgId, environment: "production" } });
   console.log(`  Ecosystem: ${ecosystemListings} listing(s), ${ecosystemApps} app(s), ${ecosystemPartners} partner(s), ${ecosystemDeals} partner deal(s), ${ecosystemChangeSets} change set(s)`);
+
+  // ── Phase 14 · Enterprise Security, Compliance & Governance ───────────────
+  // The demo security posture: vendor/sub-processor transparency rows, an
+  // active retention policy, consent records + a data-subject request, a
+  // security alert, an open status-page incident + uptime ticks, a SCIM
+  // group, and the seeded translation catalog (localization QA).
+  if (!(await p.subProcessor.findFirst({ where: { orgId } }))) {
+    await p.subProcessor.createMany({
+      data: [
+        { orgId, name: "Amazon Web Services", purpose: "Cloud infrastructure (EU West-1)", region: "EU (Ireland)", dataCategories: ["all hosted data"], link: "https://aws.amazon.com/compliance/soc-faqs/", status: "active" },
+        { orgId, name: "Stripe", purpose: "Billing & payment processing", region: "US + EU", dataCategories: ["payment metadata", "invoices"], link: "https://stripe.com/privacy", status: "active" },
+        { orgId, name: "OpenAI", purpose: "AI summaries & drafts (firewalled context only)", region: "US", dataCategories: ["redacted prompt context", "generated text"], link: "https://openai.com/policies/privacy-policy", status: "active" },
+      ],
+    });
+  }
+  if (!(await p.retentionPolicy.findFirst({ where: { orgId } }))) {
+    await p.retentionPolicy.create({
+      data: {
+        orgId, environment: "production", name: "Lead retention — 2 years",
+        entity: "lead", olderThanDays: 730, action: "anonymize", status: "active", createdBy: admin.id,
+      },
+    });
+  }
+  if (!(await p.consentRecord.findFirst({ where: { orgId } }))) {
+    await p.consentRecord.createMany({
+      data: [
+        { orgId, environment: "production", contactEmail: "elena@northwind.example", purpose: "marketing", status: "granted", source: "form", grantedAt: new Date(nowMs - 40 * 24 * h), meta: { via: "signup" } },
+        { orgId, environment: "production", contactEmail: "elena@northwind.example", purpose: "communications", status: "granted", source: "form", grantedAt: new Date(nowMs - 40 * 24 * h), meta: { via: "signup" } },
+        { orgId, environment: "production", contactEmail: "marcus@globex.example", purpose: "marketing", status: "withdrawn", source: "email", withdrawnAt: new Date(nowMs - 5 * 24 * h), meta: { via: "unsubscribe" } },
+        { orgId, environment: "production", contactEmail: "sarah@initech.example", purpose: "analytics", status: "granted", source: "form", grantedAt: new Date(nowMs - 12 * 24 * h), meta: { via: "signup" } },
+      ],
+    });
+  }
+  if (!(await p.securityAlert.findFirst({ where: { orgId } }))) {
+    await p.securityAlert.create({
+      data: {
+        orgId, environment: "production", severity: "high", category: "mfa",
+        title: "New sign-in from an unrecognized device",
+        message: "A new session was started for leo@qorvexa.dev from Chrome on Windows. Review the Sessions tab if this wasn't expected.",
+        createdBy: "system", details: { ip: "203.0.113.42", userAgent: "Chrome/126 Windows" },
+      },
+    });
+  }
+  if (!(await p.statusIncident.findFirst({ where: { orgId } }))) {
+    await p.statusIncident.create({
+      data: {
+        orgId, component: "email", title: "Email delivery delays",
+        severity: "minor", status: "investigating",
+        message: "Some outbound messages are queued longer than usual. We are monitoring provider latency.",
+        createdBy: admin.id, startedAt: new Date(nowMs - 2 * h),
+      },
+    });
+  }
+  if (!(await p.uptimeEvent.findFirst({ where: { orgId } }))) {
+    await p.uptimeEvent.createMany({
+      data: [
+        { orgId, component: "api", status: "up", latencyMs: 42, checkedAt: new Date(nowMs - 6 * 3_600_000) },
+        { orgId, component: "api", status: "up", latencyMs: 38, checkedAt: new Date(nowMs - 5 * 3_600_000) },
+        { orgId, component: "api", status: "up", latencyMs: 51, checkedAt: new Date(nowMs - 4 * 3_600_000) },
+        { orgId, component: "app", status: "up", latencyMs: 30, checkedAt: new Date(nowMs - 6 * 3_600_000) },
+        { orgId, component: "email", status: "degraded", latencyMs: 900, message: "provider queue", checkedAt: new Date(nowMs - 2 * 3_600_000) },
+      ],
+    });
+  }
+  if (!(await p.scimGroup.findFirst({ where: { orgId } }))) {
+    await p.scimGroup.create({
+      data: {
+        orgId, externalId: "group-rep", displayName: "rep", role: "rep",
+        memberIds: [leo.id],
+      },
+    });
+  }
+  const i18nCounts = await seedTranslationCatalog(orgId);
+
+  const securityAlerts = await p.securityAlert.count({ where: { orgId } });
+  const securitySessions = await p.securitySession.count({ where: { orgId } });
+  const consentCount = await p.consentRecord.count({ where: { orgId } });
+  const retentionCount = await p.retentionPolicy.count({ where: { orgId } });
+  const subProcessorCount = await p.subProcessor.count({ where: { orgId } });
+  const uptimeCount = await p.uptimeEvent.count({ where: { orgId } });
+  console.log(`  Security: ${securityAlerts} alert(s), ${securitySessions} session(s), ${consentCount} consent record(s), ${retentionCount} retention polic(y/ies), ${subProcessorCount} sub-processor(s), ${uptimeCount} uptime tick(s), i18n catalog ${i18nCounts.en} en + ${i18nCounts.partial} translated samples`);
+
+  // ── Phase 15 · Differentiators (Business Brain, Time Machine, Simulator) ──
+  // Demo: one org-memory fact (about Elena), an orchestrator that fans every
+  // new lead out to the Lead + Sales agents, and a record snapshot of the won
+  // deal so the Time Machine has history on a fresh stack. Brain insights and
+  // simulation history are produced live by the scan/run endpoints.
+  if (elena && !(await p.orgMemoryEntry.findFirst({ where: { orgId } }))) {
+    await p.orgMemoryEntry.create({
+      data: {
+        orgId, environment: "production", scope: "contact", scopeId: elena.id,
+        kind: "fact", content: "Prefers email as the primary channel — replies quickly to email follow-ups.",
+        sourceEvent: "email.replied", fingerprint: "seed:contact:prefers-email-channel",
+        confidence: 80, createdBy: admin.id,
+      },
+    });
+  }
+  const seedLeadAgent = await p.agent.findFirst({ where: { orgId, environment: "production", kind: "lead" } });
+  const seedSalesAgent = await p.agent.findFirst({ where: { orgId, environment: "production", kind: "sales" } });
+  if (seedLeadAgent && !(await p.agentOrchestrator.findFirst({ where: { orgId } }))) {
+    await p.agentOrchestrator.create({
+      data: {
+        orgId, environment: "production", name: "Lead intake → qualification",
+        description: "Fans every new lead out to the Lead + Sales agents (sequential).",
+        trigger: { kind: "event", event: "lead.created" },
+        childAgentIds: [seedLeadAgent.id, ...(seedSalesAgent ? [seedSalesAgent.id] : [])],
+        mode: "sequential", active: true, createdBy: admin.id,
+      },
+    });
+  }
+  if (wonDeal && !(await p.timeMachineSnapshot.findFirst({ where: { orgId } }))) {
+    await p.timeMachineSnapshot.create({
+      data: {
+        orgId, environment: "production", scope: "record", entity: "opportunity", entityId: wonDeal.id,
+        data: { entity: "opportunity", entityId: wonDeal.id, row: { id: wonDeal.id, name: wonDeal.name, stage: wonDeal.stage, amount: wonDeal.amount } },
+        retentionUntil: new Date(nowMs + 90 * 24 * h), createdBy: admin.id,
+      },
+    });
+  }
+  const memoryCount = await p.orgMemoryEntry.count({ where: { orgId } });
+  const orchestratorCount2 = await p.agentOrchestrator.count({ where: { orgId } });
+  const tmSnapshotCount = await p.timeMachineSnapshot.count({ where: { orgId } });
+  console.log(`  Brain: ${memoryCount} memory entr(y/ies), ${orchestratorCount2} orchestrator(s), ${tmSnapshotCount} time-machine snapshot(s)`);
 
   const territoryCount = await p.territory.count({ where: { orgId, environment: "production" } });
   const technicianCount = await p.technician.count({ where: { orgId, environment: "production" } });

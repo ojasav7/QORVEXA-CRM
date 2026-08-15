@@ -6,7 +6,7 @@ import {
   Mail, Phone, CalendarDays, CalendarClock, FileText, Bell, GitMerge, CheckCheck,
   Sun, Moon, LifeBuoy, BookOpen, Globe, Megaphone, Rocket, Waypoints, Gauge,
   BarChart3, LayoutDashboard as ReportIcon, UserRound, Package, Sparkles, Route as RouteIcon, Bot, DollarSign,
-  HeartHandshake, HardHat, Store,
+  HeartHandshake, HardHat, Store, Shield, Brain,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useSession, useFeature } from "../App";
@@ -49,6 +49,8 @@ export default function Layout() {
   const showSuccess = useFeature("cs.plans") || useFeature("cs.usage") || useFeature("cs.churn") || useFeature("cs.surveys") || useFeature("cs.loyalty");
   const showField = useFeature("field.territories") || useFeature("field.visits") || useFeature("field.workorders") || useFeature("field.inventory");
   const showEcosystem = useFeature("ecosystem.marketplace") || useFeature("ecosystem.partners") || useFeature("ecosystem.changesets") || useFeature("ecosystem.schema");
+  const showSecurity = useFeature("sec.mfa") || useFeature("sec.sessions") || useFeature("sec.scim") || useFeature("sec.consent") || useFeature("sec.retention") || useFeature("sec.status") || useFeature("i18n.localization");
+  const showBrain = useFeature("diff.brain") || useFeature("diff.graph") || useFeature("diff.memory") || useFeature("diff.orchestration") || useFeature("diff.timemachine") || useFeature("diff.simulator") || useFeature("diff.builder") || useFeature("diff.command") || useFeature("diff.ubq");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -288,6 +290,24 @@ export default function Layout() {
               Ecosystem
             </NavLink>
           )}
+          {showSecurity && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Security</div>
+          )}
+          {showSecurity && (
+            <NavLink to="/security" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Shield className="size-4" />
+              Security
+            </NavLink>
+          )}
+          {showBrain && (
+            <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-600">Brain</div>
+          )}
+          {showBrain && (
+            <NavLink to="/brain" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <Brain className="size-4" />
+              Brain
+            </NavLink>
+          )}
           <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
             <Settings className="size-4" />
             Settings
@@ -466,6 +486,16 @@ export default function Layout() {
               {showEcosystem && (
                 <NavLink to="/ecosystem" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
                   <Store className="size-4" /> Ecosystem
+                </NavLink>
+              )}
+              {showSecurity && (
+                <NavLink to="/security" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Shield className="size-4" /> Security
+                </NavLink>
+              )}
+              {showBrain && (
+                <NavLink to="/brain" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                  <Brain className="size-4" /> Brain
                 </NavLink>
               )}
               <NavLink to="/settings" onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>

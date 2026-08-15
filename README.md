@@ -11,7 +11,7 @@
 
 # QORVEXA CRM
 
-**The intelligent operating system for business** — Phases 0–8 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking) + **Automation & Workflow Engine** + **Customer Service** (tickets, SLAs, portal, knowledge base) + **Marketing Automation** (campaigns, journeys, landing pages, deliverability) + **Analytics, Forecasting & BI** (dashboards, metrics, forecasts, reports) + **CDP / Customer 360** (identity resolution, unified profiles, behavior tracking, health engine, portability) + **AI Assistant Layer** (model router, data firewall, summaries, drafts, AI scoring, semantic search).
+**The intelligent operating system for business** — Phases 0–14 **complete**: platform backbone + full core CRM + **Communication Core** (email, calling, calendar, booking) + **Automation & Workflow Engine** + **Customer Service** (tickets, SLAs, portal, knowledge base) + **Marketing Automation** (campaigns, journeys, landing pages, deliverability) + **Analytics, Forecasting & BI** (dashboards, metrics, forecasts, reports) + **CDP / Customer 360** (identity resolution, unified profiles, behavior tracking, health engine, portability) + **AI Assistant Layer** (model router, data firewall, summaries, drafts, AI scoring, semantic search) + **AI Agent Platform** (governed agents, approvals, kill switches) + **Revenue Cloud** (CPQ, contracts, billing) + **Customer Success** (plans, usage, churn, surveys, loyalty) + **Field Operations** (territories, visits, work orders, inventory) + **Ecosystem** (marketplace, partners, change sets, schema safety) + **Enterprise Security** (MFA, sessions, IP restriction, consent/DSRs, retention, status page, SCIM, i18n).
 
 </div>
 
@@ -62,6 +62,9 @@ A production-shaped CRM implementing the architecture principles from `QORVEXATh
 - **Right-to-portability (Phase 7)** — one admin click downloads a **JSON bundle of every org × environment collection** (objects, comms, tickets, marketing, analytics, CDP, events, audit) with password hashes stripped.
 - **No-code object builder (v1)** — admins define custom fields per object type via the UI; values are stored per-record and rendered dynamically.
 - **Multi-tenant from Day 1** — every document carries `orgId`; isolation is enforced on every query.
+- **MFA (Phase 14)** — TOTP two-step login with one-time recovery codes, DB-backed sessions with device management + instant revocation, and an org security policy (IP/CIDR allowlist enforced on every request, MFA requirement, session TTL, encryption posture) — see `docs/44-spec-phase14.md`.
+- **Consent & privacy center (Phase 14)** — purpose-based consent records (`consent.updated`) and data-subject requests (access/export/delete/rectify) with admin fulfillment, retention/deletion policies (`retention.policy_applied`), and sub-processor/vendor transparency.
+- **Status page + SCIM + i18n (Phase 14)** — the uptime SLA dashboard with incidents, SCIM 2.0 provisioning (scim-scoped tokens, groups → roles), and locale/currency/timezone config with a localization-QA catalog.
 - **Audit trail** — every mutation is logged with a field-level diff (`before`/`after`/`changed`), the foundation for the Phase-15 Time Machine.
 
 ## Stack
@@ -130,7 +133,7 @@ admin@qorvexa.dev / password123   (also: priya@ / leo@qorvexa.dev)
 | [docs/11-phase0-build-report.md](docs/11-phase0-build-report.md) | Phase 0 hardening + completion — what shipped, deviations, verification evidence |
 | [docs/12-phase1-build-report.md](docs/12-phase1-build-report.md) | Phase 1 completion — lead routing, hierarchy UI, segments, lead-capture forms, merge UI |
 | [docs/13-phase2-lite-build-report.md](docs/13-phase2-lite-build-report.md) | Phase 2-lite — multi-pipeline engine (CRUD, per-org config, pipeline-aware deals board) |
-| [docs/14-communication-guide.md](docs/14-communication-guide.md) | Phase 2 how-it-works — email/templates/tracking, calls, meetings, booking, timeline, mock providers |
+z` | [docs/14-communication-guide.md](docs/14-communication-guide.md) | Phase 2 how-it-works — email/templates/tracking, calls, meetings, booking, timeline, mock providers |
 | [docs/14-calling-compliance.md](docs/14-calling-compliance.md) | Calling/recording compliance notes — consent, retention, access control, GDPR/CCPA obligations |
 | [docs/14-pipeline-builder-guide.md](docs/14-pipeline-builder-guide.md) | Pipeline builder guide — create pipelines/stages/probabilities, set default, guards |
 | [docs/14-phase2-build-report.md](docs/14-phase2-build-report.md) | Phase 2 completion — Communication Core shipped end-to-end, verification evidence |
