@@ -36,7 +36,7 @@ export default function EventsPage() {
           <h1 className="text-xl font-bold tracking-tight text-white">Event bus</h1>
           <p className="text-sm text-slate-500">{total} events · every state change is emitted, persisted, and webhook-deliverable</p>
         </div>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           {types.map((t) => (
             <button
               key={t}
@@ -58,10 +58,10 @@ export default function EventsPage() {
           <div className="divide-y divide-white/[0.04]">
             {events.map((e) => (
               <div key={e.id} className="px-5 py-4 transition-colors hover:bg-white/[0.02]">
-                <button className="flex w-full items-center gap-3 text-left" onClick={() => setExpanded(expanded === e.id ? null : e.id)}>
+                <button className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left" onClick={() => setExpanded(expanded === e.id ? null : e.id)}>
                   <span className="size-2 shrink-0 rounded-full bg-accent-400/60" />
                   <span className="font-mono text-sm text-accent-300">{e.type}</span>
-                  <span className="text-xs text-slate-500">on <span className="font-mono">{e.entity}</span></span>
+                  <span className="min-w-0 truncate text-xs text-slate-500">on <span className="font-mono">{e.entity}</span></span>
                   <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-600">{dateTime(e.createdAt)}</span>
                 </button>
                 {expanded === e.id && (

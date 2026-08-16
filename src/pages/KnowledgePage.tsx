@@ -66,7 +66,7 @@ export default function KnowledgePage() {
           <h1 className="text-xl font-bold tracking-tight text-white">Knowledge base</h1>
           <p className="text-sm text-slate-500">{articles.length} articles · {published} published · published articles appear in the public portal.</p>
         </div>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search articles…" className="input w-48 pl-9" />
@@ -92,10 +92,10 @@ export default function KnowledgePage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {articles.map((a) => (
             <div key={a.id} className="card group flex flex-col p-5 transition-all hover:-translate-y-0.5 hover:border-accent-500/30">
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-2 flex flex-wrap items-center gap-1.5">
                 <Badge tone="blue">{a.category}</Badge>
                 <Badge tone={a.published ? "green" : "default"}>{a.published ? "published" : "draft"}</Badge>
-                {a.tags.slice(0, 2).map((t) => <Badge key={t} tone="violet">{t}</Badge>)}
+                {a.tags.slice(0, 2).map((t) => <Badge key={t} tone="teal">{t}</Badge>)}
               </div>
               <h3 className="text-sm font-semibold text-white">{a.title}</h3>
               <p className="mt-1 line-clamp-3 flex-1 text-xs text-slate-500">{a.body}</p>

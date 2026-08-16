@@ -121,8 +121,8 @@ export default function CopilotPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Sparkles className="size-4 text-violet-400" /> AI Copilot
-            <span className="chip bg-violet-500/15 text-violet-300">non-agentic · explainable</span>
+            <Sparkles className="size-4 text-teal-400" /> AI Copilot
+            <span className="chip bg-teal-500/15 text-teal-300">non-agentic · explainable</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Summaries, drafts, scores, sentiment, intent and semantic search — every output shows its model, its confidence, and its evidence. No autonomous actions.
@@ -200,7 +200,7 @@ export default function CopilotPage() {
                     <div className="truncate text-sm font-medium text-white">{r.title}</div>
                     {r.subtitle && <div className="truncate text-xs text-slate-500">{r.subtitle}</div>}
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                      <span className="text-violet-400">#{i + 1}</span>
+                      <span className="text-teal-400">#{i + 1}</span>
                       {r.evidence.matchedTerms.length > 0 && <span>matched: {r.evidence.matchedTerms.join(", ")}</span>}
                       {r.evidence.predicate && <span className="text-accent-300">{r.evidence.predicate}</span>}
                     </div>
@@ -228,7 +228,7 @@ export default function CopilotPage() {
           {insights.map((i) => (
             <div key={i.id} className="card p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={i.kind === "score" ? "blue" : i.kind === "search" ? "violet" : "green"}>{i.kind}</Badge>
+                <Badge tone={i.kind === "score" ? "blue" : i.kind === "search" ? "teal" : "green"}>{i.kind}</Badge>
                 <span className="text-sm font-medium text-white">{i.title ?? i.feature}</span>
                 <span className="ml-auto flex items-center gap-2">
                   <Confidence value={i.confidence} />
@@ -331,7 +331,7 @@ function GeneratePanel({ onGenerated, onCopy, notice }: { onGenerated: () => voi
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div className="card p-5">
         <div className="flex flex-wrap gap-1.5">
           {([["summary", "Summarize", FileText], ["draft", "Email draft", Mail], ["score", "Score", Gauge], ["text", "Text tools", MessageSquareText]] as const).map(([k, label, Icon]) => (
@@ -477,7 +477,7 @@ function InsightCard({ insight, onCopy }: { insight: Insight; onCopy: (t: string
   return (
     <div className="card p-5">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={insight.kind === "score" ? "blue" : insight.kind === "sentiment" ? "amber" : insight.kind === "intent" ? "violet" : "green"}>{insight.kind}</Badge>
+        <Badge tone={insight.kind === "score" ? "blue" : insight.kind === "sentiment" ? "amber" : insight.kind === "intent" ? "teal" : "green"}>{insight.kind}</Badge>
         <span className="text-sm font-semibold text-white">{insight.title ?? insight.feature}</span>
         <span className="ml-auto flex items-center gap-2">
           <Confidence value={insight.confidence} />
@@ -553,9 +553,9 @@ function MemoryPanel({ memories, onChanged, onCopy }: { memories: { id: string; 
     } catch { /* ignore */ }
   };
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div className="card p-5">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Brain className="size-4 text-violet-400" /> Short-term AI memory</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Brain className="size-4 text-teal-400" /> Short-term AI memory</h3>
         <p className="mt-1 text-xs text-slate-500">Per-user scratchpad the copilot can read on future calls. Rows expire (TTL) and are purged by the engine.</p>
         <div className="mt-4 space-y-2">
           <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="key — e.g. draft.tone" className="input" />
@@ -597,7 +597,7 @@ function FirewallPanel({ firewall, isAdmin, onSaved }: { firewall: { policy: Fir
     } catch { /* ignore */ }
   };
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div className="card p-5">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><ShieldCheck className="size-4 text-emerald-400" /> Data firewall policy</h3>
         <p className="mt-1 text-xs text-slate-500">Redacts PII from the context BEFORE it reaches a model — outputs are generated from the scrubbed context, so stripped values can never echo back.</p>

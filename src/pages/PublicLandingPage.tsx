@@ -19,7 +19,7 @@ type PageConfig = {
 };
 
 const THEME_GRADIENTS: Record<string, string> = {
-  indigo: "from-indigo-500 to-violet-600",
+  teal: "from-teal-500 to-teal-600",
   emerald: "from-emerald-500 to-teal-600",
   rose: "from-rose-500 to-pink-600",
   amber: "from-amber-500 to-orange-600",
@@ -73,7 +73,7 @@ export default function PublicLandingPage() {
     );
   }
 
-  const gradient = THEME_GRADIENTS[page.theme] ?? THEME_GRADIENTS.indigo;
+  const gradient = THEME_GRADIENTS[page.theme] ?? THEME_GRADIENTS.teal;
   const enabled = page.fields.filter((f) => f.enabled);
 
   return (

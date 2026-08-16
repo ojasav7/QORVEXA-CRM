@@ -46,7 +46,7 @@ export default function SegmentsPage() {
     }
   };
 
-  const typeTone: Record<string, string> = { contact: "blue", account: "green", lead: "violet", opportunity: "amber", task: "default" };
+  const typeTone: Record<string, string> = { contact: "blue", account: "green", lead: "teal", opportunity: "amber", task: "default" };
 
   return (
     <div className="animate-fade-up">

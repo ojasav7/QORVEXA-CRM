@@ -26,6 +26,8 @@ npm run dev               # API :8787 + Vite :5173 (proxies /api)
 | `OAUTH_MOCK` | off | `1` completes the SSO flow instantly as `admin@qorvexa.dev` (non-production only) — demo/dev only |
 | `SNAPSHOT_INTERVAL_HOURS` | `24` | Scheduled snapshot interval (ADR-009) |
 | `SNAPSHOTS_ENABLED` | `true` | `false` disables the scheduled snapshot job |
+| `PUBLIC_BASE_URL` | `http://localhost:8787` | Public origin — OAuth redirects, tracking pixels, email click links. Set to the real deployed origin in production. |
+| `EMAIL_MOCK` | `true` | `false` + a provider adapter to send real email; when true messages are simulated |
 
 **Scheduled backups:** the server snapshots each org's production env on the interval above (first run 60s after boot) and prunes archives older than `Organization.settings.backupRetentionDays` (default 30). Set the retention per org via `PATCH /api/org` → `settings.backupRetentionDays`.
 
@@ -39,19 +41,51 @@ Prisma **requires a replica set** on MongoDB. Atlas (M0+) is a replica set by de
 
 ```bash
 npm run build             # typecheck + client → dist/
-npm start                 # Express serves /api + dist/ on PORT
+npm start                 # Express serves /api + dist/ on PORT (tsx, now a runtime dep)
 ```
 
-### Render (recommended for Express)
+> `npm start` runs the TypeScript server via `tsx` — `tsx` is in `dependencies` so a bare `npm ci --omit=dev` install still boots. `NODE_ENV=production` is required for the session-secret guard to engage (the app refuses to boot with the default secret).
+
+### Docker Compose (recommended)
+
+The repo ships a full production stack: multi-stage `Dockerfile` + `docker-compose.prod.yml` with the app, MongoDB (single-node replica set — required by Prisma), and persistent volumes for the database, scheduled backups, and GDPR/portability exports.
+
+```bash
+# 1. Configure secrets (SESSION_SECRET is mandatory)
+cp .env.example .env
+openssl rand -hex 32          # put the output into SESSION_SECRET
+# optionally: set PUBLIC_BASE_URL to your real origin, EMAIL_MOCK=false, SSO keys
+
+# 2. Build & start
+npm run mongo:down 2>/dev/null || true   # avoid a port clash with the dev Mongo
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 3. Verify
+curl http://localhost:8787/api/health      # → { "status": "ok", "db": "connected" }
+docker compose -f docker-compose.prod.yml ps   # app should be (healthy)
+```
+
+First-run only: create the admin workspace in the browser (`/register`), then `npm run seed` is **not** required (the DB starts empty). To load demo data instead: `docker compose -f docker-compose.prod.yml exec app npm run seed`.
+
+Operational notes:
+- **Data persistence** — named volumes `qorvexa-prod-mongo`, `qorvexa-prod-backups`, `qorvexa-prod-portability` survive `down`/`up`. To wipe everything: `docker compose -f docker-compose.prod.yml down -v`.
+- **The image is non-root** — the server runs as the `node` user; backups/portability dirs are writable and volume-mounted.
+- **Healthcheck** — the app container is only `healthy` when Mongo answers a ping (`/api/health`).
+- **Migrations** — `docker compose -f docker-compose.prod.yml exec app npx prisma db push` after a deploy that changed `prisma/schema.prisma`. The image runs `prisma generate` at build time.
+- **Logs** — `docker compose -f docker-compose.prod.yml logs -f app`.
+- **Updates** — pull, `docker compose -f docker-compose.prod.yml up -d --build`, run the migration step above if the schema changed.
+
+### Render (recommended for a single Express service)
 
 1. Push to GitHub → new **Web Service**.
 2. Build: `npm install && npm run db:generate && npm run build`
 3. Start: `npm start`
-4. Env vars: `DATABASE_URL`, `SESSION_SECRET`, `PORT=8787`.
+4. Env vars: `DATABASE_URL`, `SESSION_SECRET`, `PORT=8787`, `PUBLIC_BASE_URL=https://<your-app>.onrender.com`, `NODE_ENV=production`.
+5. Use a hosted Mongo (Atlas M0+) — Prisma needs a replica set, which a single container can't provide. Render's free disk is ephemeral, so set `SNAPSHOTS_ENABLED=false` or attach a disk for `backups/`.
 
 ### Vercel
 
-Vercel hosts static frontends; the Express server needs a serverless adapter. For this repo, Render is the simpler path — Vercel becomes viable once we add a serverless wrapper (later phase).
+Vercel hosts static frontends; the Express server needs a serverless adapter. For this repo, Render/Docker is the simpler path — Vercel becomes viable once we add a serverless wrapper (later phase).
 
 ## Verification checklist (post-deploy)
 

@@ -39,9 +39,9 @@ type InventoryItem = {
 type RoutePlan = { technicianId: string | null; technicianName: string | null; totalKm: number; ordered: (Visit & { legKm: number; cumulativeKm: number })[] };
 type Overview = { territories: number; technicians: number; visitsToday: number; visitsPlanned: number; openWorkOrders: number; slaBreached: number; maintenanceDue: number; lowStock: number; assetsTotal: number; inventoryValue: number };
 
-const STATUS_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "violet"> = {
-  planned: "blue", in_transit: "amber", checked_in: "violet", completed: "green", cancelled: "default",
-  open: "blue", dispatched: "amber", in_progress: "violet", on_hold: "default",
+const STATUS_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "teal"> = {
+  planned: "blue", in_transit: "amber", checked_in: "teal", completed: "green", cancelled: "default",
+  open: "blue", dispatched: "amber", in_progress: "teal", on_hold: "default",
   available: "green", on_route: "amber", off_duty: "default",
   low: "default", medium: "blue", high: "amber", critical: "rose",
   active: "green", maintenance: "amber", retired: "default",
@@ -106,7 +106,7 @@ function OverviewTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: bool
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Territories" value={ov.territories} sub="active territories" tone="blue" />
-        <StatCard label="Technicians" value={ov.technicians} sub="in the field" tone="violet" />
+        <StatCard label="Technicians" value={ov.technicians} sub="in the field" tone="teal" />
         <StatCard label="Visits planned" value={ov.visitsPlanned} sub={`${ov.visitsToday} today`} tone="amber" />
         <StatCard label="Open work orders" value={ov.openWorkOrders} sub={`${ov.slaBreached} past SLA`} tone={ov.slaBreached > 0 ? "amber" : "green"} />
         <StatCard label="Stock value" value={`$${ov.inventoryValue.toLocaleString()}`} sub={`${ov.lowStock} low-stock items`} tone={ov.lowStock > 0 ? "amber" : "green"} />
@@ -168,7 +168,7 @@ function TerritoriesTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: b
         </div>
       )}
       {items.length === 0 && <EmptyState icon={<MapIcon className="size-8" />} title="No territories yet" hint="Create a territory and assign accounts." />}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {items.map((t) => (
           <div key={t.id} className="card p-4">
             <div className="flex items-start justify-between gap-2">

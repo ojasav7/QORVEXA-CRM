@@ -86,9 +86,9 @@ export default function DeliverabilityPage() {
           </div>
 
           <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <StatCard label="Bounce rate" value={`${metrics.bounceRate}%`} tone={metrics.bounceRate >= 3 ? "amber" : "violet"} sub={`${metrics.bounced} bounced`} />
-            <StatCard label="Unsubscribed" value={metrics.unsubscribed} tone="violet" sub="opted out" />
-            <StatCard label="Spam complaints" value={metrics.complaints} tone="violet" sub="reported" />
+            <StatCard label="Bounce rate" value={`${metrics.bounceRate}%`} tone={metrics.bounceRate >= 3 ? "amber" : "teal"} sub={`${metrics.bounced} bounced`} />
+            <StatCard label="Unsubscribed" value={metrics.unsubscribed} tone="teal" sub="opted out" />
+            <StatCard label="Spam complaints" value={metrics.complaints} tone="teal" sub="reported" />
           </div>
 
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs text-slate-500">
@@ -118,7 +118,7 @@ export default function DeliverabilityPage() {
                     <div className="flex gap-1">
                       <button onClick={() => void simulate(m.id, "bounce")} disabled={busy !== null} title="Simulate hard bounce" className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-500/15 hover:text-rose-400"><AlertTriangle className="size-3.5" /></button>
                       <button onClick={() => void simulate(m.id, "unsubscribe")} disabled={busy !== null} title="Simulate unsubscribe" className="rounded-lg p-1.5 text-slate-500 hover:bg-amber-500/15 hover:text-amber-400"><Ban className="size-3.5" /></button>
-                      <button onClick={() => void simulate(m.id, "complaint")} disabled={busy !== null} title="Simulate spam complaint" className="rounded-lg p-1.5 text-slate-500 hover:bg-violet-500/15 hover:text-violet-400"><Flag className="size-3.5" /></button>
+                      <button onClick={() => void simulate(m.id, "complaint")} disabled={busy !== null} title="Simulate spam complaint" className="rounded-lg p-1.5 text-slate-500 hover:bg-teal-500/15 hover:text-teal-400"><Flag className="size-3.5" /></button>
                     </div>
                   )}
                 </div>

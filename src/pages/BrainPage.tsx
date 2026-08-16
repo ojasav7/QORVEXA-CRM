@@ -68,8 +68,8 @@ export default function BrainPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Brain className="size-4 text-violet-400" /> Brain &amp; differentiators
-            <span className="chip bg-violet-500/15 text-violet-300">Business Brain · X-Ray · Radar · Time Machine · Simulator</span>
+            <Brain className="size-4 text-teal-400" /> Brain &amp; differentiators
+            <span className="chip bg-teal-500/15 text-teal-300">Business Brain · X-Ray · Radar · Time Machine · Simulator</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             The Phase 15 “1-of-1” layer: the org-wide Business Brain (opportunities / risks / anomalies / recommendations with evidence), the buying-committee graph v2, Deal X-Ray + the AI Deal Detective, the Opportunity Radar early-warning feed, organizational memory, multi-agent orchestration, the CRM Time Machine, the What-If simulator, AI-built generators, Universal Business Query, and the voice / computer-use console.
@@ -162,7 +162,7 @@ function OverviewTab({ isAdmin }: { isAdmin: boolean }) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Open insights" value={ov.insights.open} sub={`${ov.insights.total} total across ${Object.keys(ov.insights.byCategory).length} categories`} tone={ov.insights.open ? "amber" : "green"} />
         <StatCard label="Radar signals" value={ov.radar.signals} sub={`${ov.radar.byKind.risk ?? 0} risk · ${ov.radar.byKind.opportunity ?? 0} opportunity`} tone={ov.radar.byKind.risk ? "amber" : "green"} />
-        <StatCard label="Memory entries" value={ov.memory} sub={`${ov.orchestrators} orchestrator(s)`} tone="violet" />
+        <StatCard label="Memory entries" value={ov.memory} sub={`${ov.orchestrators} orchestrator(s)`} tone="teal" />
         <StatCard label="Snapshots" value={ov.snapshots} sub={`${ov.simulations} simulation(s) · ${ov.retentionDays}d retention`} tone="blue" />
       </div>
 
@@ -178,7 +178,7 @@ function OverviewTab({ isAdmin }: { isAdmin: boolean }) {
       {insights.length === 0 ? (
         <EmptyState icon={<Brain className="size-8" />} title="No insights yet" hint="Run a brain scan to synthesize opportunities, risks, anomalies and recommendations across every module." />
       ) : (
-        <div className="grid gap-2.5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
           {insights.slice(0, 14).map((i) => (
             <div key={i.id} className="rounded-lg border border-white/[0.06] bg-ink-900/50 p-3.5">
               <div className="flex items-start gap-2.5">
@@ -299,7 +299,7 @@ function XrayTab() {
         {err && <Err e={err} />}
       </div>
       {x && (
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="card p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Deal X-Ray</p>
@@ -458,7 +458,7 @@ function MemoryTab() {
           {items.map((m) => (
             <div key={m.id} className="rounded-lg border border-white/[0.06] bg-ink-900/50 p-3.5">
               <div className="flex items-center justify-between gap-2">
-                <Badge tone={m.kind === "fact" ? "green" : m.kind === "observation" ? "blue" : "violet"}>{m.kind} · {m.scope}</Badge>
+                <Badge tone={m.kind === "fact" ? "green" : m.kind === "observation" ? "blue" : "teal"}>{m.kind} · {m.scope}</Badge>
                 <button className="btn-ghost px-1.5 py-0.5 text-[11px] text-slate-500" onClick={() => forget(m.id)} aria-label="Forget"><Trash2 className="size-3" /></button>
               </div>
               <p className="mt-2 text-sm text-slate-300">{m.content}</p>
@@ -524,7 +524,7 @@ function OrchestratorsTab({ isAdmin }: { isAdmin: boolean }) {
             <div className="flex flex-wrap items-center gap-1.5 pb-1">
               {childIds.map((id) => {
                 const a = agents.find((x) => x.id === id);
-                return <Badge key={id} tone="violet">{a?.name ?? id} <button className="ml-1 text-slate-400 hover:text-white" onClick={() => setChildIds(childIds.filter((x) => x !== id))} aria-label="Remove">×</button></Badge>;
+                return <Badge key={id} tone="teal">{a?.name ?? id} <button className="ml-1 text-slate-400 hover:text-white" onClick={() => setChildIds(childIds.filter((x) => x !== id))} aria-label="Remove">×</button></Badge>;
               })}
             </div>
           )}
@@ -540,7 +540,7 @@ function OrchestratorsTab({ isAdmin }: { isAdmin: boolean }) {
             <div key={o.id} className="rounded-lg border border-white/[0.06] bg-ink-900/50 p-3.5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium text-white">{o.name}</span>
-                <Badge tone="violet">{o.mode}</Badge>
+                <Badge tone="teal">{o.mode}</Badge>
                 <Badge tone="default">{o.trigger.kind === "event" ? o.trigger.event : "manual"}</Badge>
                 <Badge tone={o.active ? "green" : "default"}>{o.active ? "active" : "paused"}</Badge>
                 <span className="text-xs text-slate-600">· {o.runCount} run(s) · {o.childAgentIds.length} child agent(s)</span>
@@ -658,7 +658,7 @@ function TimeMachineTab({ isAdmin }: { isAdmin: boolean }) {
             {snaps.map((s) => (
               <div key={s.id} className="rounded-lg border border-white/[0.06] bg-ink-900/50 p-3">
                 <div className="flex items-center gap-2">
-                  <Badge tone={s.scope === "full" ? "violet" : "blue"}>{s.scope}</Badge>
+                  <Badge tone={s.scope === "full" ? "teal" : "blue"}>{s.scope}</Badge>
                   {s.entity && <span className="text-xs text-slate-400">{s.entity}</span>}
                 </div>
                 <p className="mt-1.5 text-xs text-slate-500">Captured {timeAgo(s.snapshotAt)} · retention until {s.retentionUntil ? dateTime(s.retentionUntil) : "—"}</p>
@@ -705,12 +705,12 @@ function SimulatorTab({ isAdmin }: { isAdmin: boolean }) {
   const metrics: Record<string, unknown> = (result?.results ?? result?.metrics) ?? {};
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="card p-4">
           <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">Scenario</p>
           <div className="flex flex-wrap gap-1.5">
             {models.map((m) => (
-              <button key={m.key} onClick={() => pickModel(m.key)} className={`chip ${scenario === m.key ? "bg-violet-500/20 text-violet-300" : "bg-white/[0.04] text-slate-400 hover:text-slate-200"}`}>{m.label}</button>
+              <button key={m.key} onClick={() => pickModel(m.key)} className={`chip ${scenario === m.key ? "bg-teal-500/20 text-teal-300" : "bg-white/[0.04] text-slate-400 hover:text-slate-200"}`}>{m.label}</button>
             ))}
           </div>
           {model && <p className="mt-2 text-xs text-slate-500">{model.description}</p>}
@@ -750,7 +750,7 @@ function SimulatorTab({ isAdmin }: { isAdmin: boolean }) {
                   <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600">Projected MRR</p>
                   <div className="mt-1.5 flex h-16 items-end gap-0.5">
                     {(metrics.projected as number[]).slice(0, 24).map((v, i) => (
-                      <div key={i} className="flex-1 rounded-t bg-violet-500/50" style={{ height: `${Math.max(4, (v / Math.max(1, Math.max(...(metrics.projected as number[])))) * 100)}%` }} title={`${v}`} />
+                      <div key={i} className="flex-1 rounded-t bg-teal-500/50" style={{ height: `${Math.max(4, (v / Math.max(1, Math.max(...(metrics.projected as number[])))) * 100)}%` }} title={`${v}`} />
                     ))}
                   </div>
                 </div>
@@ -905,7 +905,7 @@ function CommandTab() {
   };
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <form className="card p-4" onSubmit={send}>
           <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">Voice / typed command</p>
           <div className="flex flex-wrap gap-2">

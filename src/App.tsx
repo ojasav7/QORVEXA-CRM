@@ -1,8 +1,9 @@
-import { useEffect, useState, createContext, useContext, type ReactNode } from "react";
+import { useEffect, useState, createContext, useContext, useCallback, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Agentation } from "agentation";
 import { get, post, ENV_STORAGE_KEY, type User, type Org } from "./lib/api";
 import { initTheme } from "./lib/theme";
-import { Spinner } from "./components/ui";
+import { Spinner, ToastHost, type Toast } from "./components/ui";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
@@ -132,54 +133,75 @@ export default function App() {
 
   return (
     <SessionCtx.Provider value={session}>
-      <Routes>
-        <Route path="/login" element={session.user ? <Navigate to="/" replace /> : <Login />} />
-        <Route path="/forms/:slug" element={<FormPage />} />
-        <Route path="/b/:slug" element={<PublicBookingPage />} />
-        <Route path="/p/:slug" element={<PublicPortalPage />} />
-        <Route path="/l/:slug" element={<PublicLandingPage />} />
-        <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
-          <Route index element={<Dashboard />} />
-          <Route path="contacts" element={<ObjectPage type="contact" />} />
-          <Route path="accounts" element={<ObjectPage type="account" />} />
-          <Route path="accounts/hierarchy" element={<AccountHierarchyPage />} />
-          <Route path="segments" element={<SegmentsPage />} />
-          <Route path="leads" element={<ObjectPage type="lead" />} />
-          <Route path="deals" element={<DealsPage />} />
-          <Route path="activities" element={<ActivitiesPage />} />
-          <Route path="emails" element={<EmailPage />} />
-          <Route path="emails/templates" element={<EmailTemplatesPage />} />
-          <Route path="calls" element={<CallsPage />} />
-          <Route path="meetings" element={<MeetingsPage />} />
-          <Route path="booking" element={<BookingPagesPage />} />
-          <Route path="events" element={<EventsPage />} />
-          <Route path="workflows" element={<WorkflowsPage />} />
-          <Route path="tickets" element={<TicketsPage />} />
-          <Route path="knowledge" element={<KnowledgePage />} />
-          <Route path="portals" element={<PortalsPage />} />
-          <Route path="campaigns" element={<CampaignsPage />} />
-          <Route path="landing" element={<LandingPagesPage />} />
-          <Route path="journeys" element={<JourneysPage />} />
-          <Route path="deliverability" element={<DeliverabilityPage />} />
-          <Route path="analytics" element={<AnalyticsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route path="portability" element={<PortabilityPage />} />
-          <Route path="copilot" element={<CopilotPage />} />
-          <Route path="models" element={<ModelsPage />} />
-          <Route path="agents" element={<AgentsPage />} />
-          <Route path="revenue" element={<RevenuePage />} />
-          <Route path="success" element={<SuccessPage />} />
-          <Route path="field" element={<FieldPage />} />
-          <Route path="ecosystem" element={<EcosystemPage />} />
-          <Route path="security" element={<SecurityPage />} />
-          <Route path="brain" element={<BrainPage />} />
-          <Route path="import" element={<ImportPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <ToastProvider>
+        {process.env.NODE_ENV === "development" && <Agentation />}
+        <Routes>
+          <Route path="/login" element={session.user ? <Navigate to="/" replace /> : <Login />} />
+          <Route path="/forms/:slug" element={<FormPage />} />
+          <Route path="/b/:slug" element={<PublicBookingPage />} />
+          <Route path="/p/:slug" element={<PublicPortalPage />} />
+          <Route path="/l/:slug" element={<PublicLandingPage />} />
+          <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
+            <Route index element={<Dashboard />} />
+            <Route path="contacts" element={<ObjectPage type="contact" />} />
+            <Route path="accounts" element={<ObjectPage type="account" />} />
+            <Route path="accounts/hierarchy" element={<AccountHierarchyPage />} />
+            <Route path="segments" element={<SegmentsPage />} />
+            <Route path="leads" element={<ObjectPage type="lead" />} />
+            <Route path="deals" element={<DealsPage />} />
+            <Route path="activities" element={<ActivitiesPage />} />
+            <Route path="emails" element={<EmailPage />} />
+            <Route path="emails/templates" element={<EmailTemplatesPage />} />
+            <Route path="calls" element={<CallsPage />} />
+            <Route path="meetings" element={<MeetingsPage />} />
+            <Route path="booking" element={<BookingPagesPage />} />
+            <Route path="events" element={<EventsPage />} />
+            <Route path="workflows" element={<WorkflowsPage />} />
+            <Route path="tickets" element={<TicketsPage />} />
+            <Route path="knowledge" element={<KnowledgePage />} />
+            <Route path="portals" element={<PortalsPage />} />
+            <Route path="campaigns" element={<CampaignsPage />} />
+            <Route path="landing" element={<LandingPagesPage />} />
+            <Route path="journeys" element={<JourneysPage />} />
+            <Route path="deliverability" element={<DeliverabilityPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="customers" element={<CustomersPage />} />
+            <Route path="portability" element={<PortabilityPage />} />
+            <Route path="copilot" element={<CopilotPage />} />
+            <Route path="models" element={<ModelsPage />} />
+            <Route path="agents" element={<AgentsPage />} />
+            <Route path="revenue" element={<RevenuePage />} />
+            <Route path="success" element={<SuccessPage />} />
+            <Route path="field" element={<FieldPage />} />
+            <Route path="ecosystem" element={<EcosystemPage />} />
+            <Route path="security" element={<SecurityPage />} />
+            <Route path="brain" element={<BrainPage />} />
+            <Route path="import" element={<ImportPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </ToastProvider>
     </SessionCtx.Provider>
+  );
+}
+
+// ── Toast context (spec §37) — global success/error feedback ──
+const ToastCtx = createContext<(tone: "success" | "error" | "info", message: string) => void>(() => {});
+export const useToast = () => useContext(ToastCtx);
+
+function ToastProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const dismiss = useCallback((id: number) => setToasts((ts) => ts.filter((t) => t.id !== id)), []);
+  const push = useCallback((tone: "success" | "error" | "info", message: string) => {
+    setToasts((ts) => [...ts.slice(-3), { id: Date.now() + Math.random(), tone, message }]);
+  }, []);
+  return (
+    <ToastCtx.Provider value={push}>
+      {children}
+      <ToastHost toasts={toasts} dismiss={dismiss} />
+    </ToastCtx.Provider>
   );
 }
 

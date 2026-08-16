@@ -1,0 +1,93 @@
+# ── QORVEXA CRM · production stack ──────────────────────────────────────────
+# Full app + MongoDB (single-node replica set — Prisma requires one).
+#
+# Usage:
+#   cp .env.example .env        # then set DATABASE_URL, SESSION_SECRET, etc.
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml ps   # wait for "healthy"
+#   curl http://localhost:8787/api/health
+#
+# Data lives in named volumes so it survives `down`/`up`:
+#   qorvexa-prod-mongo     → MongoDB data (the actual database)
+#   qorvexa-prod-backups   → scheduled snapshot archives (ADR-009)
+#   qorvexa-prod-portability → GDPR/portability export bundles
+#
+# Secrets come from the environment (or .env via compose's automatic loading).
+# The app refuses to boot in production without a real SESSION_SECRET.
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: qorvexa-prod-mongo
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - qorvexa-prod-mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # One-shot initializer: waits for Mongo, then initiates the replica set.
+  mongo-init:
+    image: mongo:7
+    container_name: qorvexa-prod-mongo-init
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      bash -c "
+      until mongosh --host mongo --quiet --eval 'db.runCommand({ping:1}).ok' 2>/dev/null | grep -q 1; do sleep 1; done;
+      mongosh --host mongo --quiet --eval 'try { rs.initiate({ _id: \"rs0\", members: [{ _id: 0, host: \"mongo:27017\" }] }) } catch (e) { print(e.message) }';
+      echo 'Replica set ready.'
+      "
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qorvexa-crm:latest
+    container_name: qorvexa-prod-app
+    restart: unless-stopped
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    ports:
+      - "8787:8787"
+    environment:
+      NODE_ENV: production
+      # Point the app at the compose Mongo service, not a host-local DB.
+      DATABASE_URL: mongodb://mongo:27017/qorvexa?replicaSet=rs0
+      # Copy these from your .env — the app refuses to boot without a strong secret.
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET must be set - generate with: openssl rand -hex 32}"
+      PORT: "8787"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8787}
+      ALLOWED_REGISTRATION_DOMAINS: ${ALLOWED_REGISTRATION_DOMAINS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      SNAPSHOT_INTERVAL_HOURS: ${SNAPSHOT_INTERVAL_HOURS:-24}
+      SNAPSHOTS_ENABLED: ${SNAPSHOTS_ENABLED:-true}
+      # EMAIL_MOCK defaults to true (no real sends). Set false + a provider
+      # adapter to send real email (see docs/07-setup.md).
+      EMAIL_MOCK: ${EMAIL_MOCK:-true}
+    volumes:
+      - qorvexa-prod-backups:/app/backups
+      - qorvexa-prod-portability:/app/portability
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>r.ok?r.json():Promise.reject(r.status)).then(j=>process.exit(j.status==='ok'?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  qorvexa-prod-mongo:
+  qorvexa-prod-backups:
+  qorvexa-prod-portability:

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CheckCircle2, Circle, Plus, Trash2 } from "lucide-react";
 import { api, del, patch, post, ApiError } from "../lib/api";
 import { Badge, EmptyState, Field, Modal, Spinner } from "../components/ui";
@@ -23,6 +24,16 @@ export default function ActivitiesPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+
+  // Quick-create support: /activities?new=1 (via the T shortcut or the
+  // topbar QuickCreate menu) opens the new-task modal.
+  useEffect(() => {
+    if (params.get("new") === "1") {
+      setCreating(true);
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,7 +127,7 @@ function TaskGroup({ title, tasks, toggle, onRemove, tone = "default", dim }: {
       <div className="space-y-2">
         {tasks.map((task) => (
           <div key={task.id} className={`card flex items-center gap-3 px-4 py-3.5 ${dim ? "opacity-50" : ""}`}>
-            <button onClick={() => toggle(task)} className="shrink-0 text-slate-500 transition-colors hover:text-mint-400">
+            <button onClick={() => toggle(task)} aria-label={task.status === "done" ? `Reopen task: ${task.title}` : `Mark task as done: ${task.title}`} className="shrink-0 text-slate-500 transition-colors hover:text-mint-400">
               {task.status === "done" ? <CheckCircle2 className="size-5 text-mint-400" /> : <Circle className="size-5" />}
             </button>
             <div className="min-w-0 flex-1">
@@ -126,7 +137,7 @@ function TaskGroup({ title, tasks, toggle, onRemove, tone = "default", dim }: {
                 {task.dueAt && <span className="tabular-nums">{date(task.dueAt)}</span>}
               </p>
             </div>
-            <button onClick={() => onRemove(task.id)} className="rounded-lg p-1.5 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400">
+            <button onClick={() => onRemove(task.id)} aria-label={`Delete task: ${task.title}`} className="rounded-lg p-1.5 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400">
               <Trash2 className="size-4" />
             </button>
           </div>

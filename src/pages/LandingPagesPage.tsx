@@ -22,7 +22,7 @@ type LandingPage = {
 type Campaign = { id: string; name: string };
 
 const THEMES: Record<string, { label: string; bg: string; text: string; ring: string }> = {
-  indigo: { label: "Indigo", bg: "from-indigo-500 to-violet-600", text: "text-indigo-300", ring: "bg-indigo-500" },
+  teal: { label: "Indigo", bg: "from-teal-500 to-teal-600", text: "text-teal-300", ring: "bg-teal-500" },
   emerald: { label: "Emerald", bg: "from-emerald-500 to-teal-600", text: "text-emerald-300", ring: "bg-emerald-500" },
   rose: { label: "Rose", bg: "from-rose-500 to-pink-600", text: "text-rose-300", ring: "bg-rose-500" },
   amber: { label: "Amber", bg: "from-amber-500 to-orange-600", text: "text-amber-300", ring: "bg-amber-500" },
@@ -104,7 +104,7 @@ export default function LandingPagesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pages.map((p) => {
-            const theme = THEMES[p.theme] ?? THEMES.indigo;
+            const theme = THEMES[p.theme] ?? THEMES.teal;
             return (
               <div key={p.id} className={`card p-5 transition-colors ${p.active ? "" : "opacity-60"}`}>
                 <div className={`flex h-24 items-center justify-center rounded-xl bg-gradient-to-br ${theme.bg}`}>
@@ -125,7 +125,7 @@ export default function LandingPagesPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <Badge tone="blue">/l/{p.slug}</Badge>
-                  {p.campaignId && <Badge tone="violet"><Palette className="size-3" /> attributed</Badge>}
+                  {p.campaignId && <Badge tone="teal"><Palette className="size-3" /> attributed</Badge>}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {p.fields.filter((f) => f.enabled).map((f) => (
@@ -171,7 +171,7 @@ function PageModal({ initial, campaigns, onClose, onDone }: { initial: LandingPa
     subtext: initial?.subtext ?? "",
     ctaLabel: initial?.ctaLabel ?? "Get started",
     successMessage: initial?.successMessage ?? "Thanks — we'll be in touch soon.",
-    theme: initial?.theme ?? "indigo",
+    theme: initial?.theme ?? "teal",
     campaignId: initial?.campaignId ?? "",
     fields: initial?.fields?.length ? initial.fields : ["firstName", "lastName", "email", "phone", "company"].map((key) => ({ key, enabled: key === "firstName" || key === "lastName" || key === "email" })),
   });

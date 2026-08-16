@@ -65,7 +65,7 @@ export default function AccountHierarchyPage() {
             <span className="flex items-center gap-2 text-sm font-medium text-white hover:text-accent-400">
               <Building2 className="size-3.5 text-slate-500" />
               {a.name}
-              {a.tier && <Badge tone={a.tier === "Enterprise" ? "violet" : a.tier === "Mid-Market" ? "blue" : "default"}>{a.tier}</Badge>}
+              {a.tier && <Badge tone={a.tier === "Enterprise" ? "teal" : a.tier === "Mid-Market" ? "blue" : "default"}>{a.tier}</Badge>}
               {typeof a.employees === "number" && <span className="text-xs text-slate-600">{a.employees} employees</span>}
             </span>
           </button>

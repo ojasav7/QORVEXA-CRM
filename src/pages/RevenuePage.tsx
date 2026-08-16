@@ -22,14 +22,14 @@ type Payment = { id: string; invoiceId: string; invoiceNumber: string | null; ac
 type Invoice = { id: string; invoiceNumber: string; accountId: string | null; accountName: string | null; subscriptionId: string | null; orderId: string | null; lines: QuoteLine[]; subtotal: number; taxTotal: number; total: number; status: string; dueDate: string | null; issuedAt: string | null; paidAt: string | null; dunningAttempts: number; payments: Payment[]; createdAt: string };
 type Metric = { key: string; label: string; value: number; format: "currency" | "count" | "pct"; sources: { entity: string; query: string; note: string }[] };
 
-const STATUS_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "violet"> = {
-  draft: "default", needs_approval: "amber", approved: "blue", sent: "blue", signed: "violet", won: "green",
+const STATUS_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "teal"> = {
+  draft: "default", needs_approval: "amber", approved: "blue", sent: "blue", signed: "teal", won: "green",
   lost: "rose", voided: "rose", confirmed: "blue", fulfilled: "green",
   active: "green", past_due: "amber", expired: "default", expiring: "amber", terminated: "rose",
   issued: "blue", paid: "green", overdue: "rose", succeeded: "green", failed: "rose", refunded: "amber",
 };
 const tierBadge = (s: string) => <Badge tone={STATUS_TONE[s] ?? "default"}>{s.replace("_", " ")}</Badge>;
-const CATEGORY_TONE: Record<string, "default" | "blue" | "violet" | "amber"> = { software: "blue", service: "violet", hardware: "amber", bundle: "green" as any, other: "default" };
+const CATEGORY_TONE: Record<string, "default" | "blue" | "teal" | "amber"> = { software: "blue", service: "teal", hardware: "amber", bundle: "green" as any, other: "default" };
 
 export default function RevenuePage() {
   const { user } = useSession();
@@ -106,17 +106,17 @@ function OverviewTab() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="MRR" value={fmt("mrr")} sub="monthly recurring revenue" tone="green" />
         <StatCard label="ARR" value={fmt("arr")} sub="annualized (MRR × 12)" tone="blue" />
-        <StatCard label="Active subs" value={fmt("activeSubs")} sub={`${fmt("pastDueSubs")} past due`} tone="violet" />
+        <StatCard label="Active subs" value={fmt("activeSubs")} sub={`${fmt("pastDueSubs")} past due`} tone="teal" />
         <StatCard label="Outstanding" value={fmt("outstanding")} sub={`${fmt("overdueTotal")} overdue`} tone="amber" />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="New MRR (month)" value={fmt("newMrr")} tone="green" />
         <StatCard label="Churned MRR (month)" value={fmt("churnedMrr")} tone="amber" />
         <StatCard label="Collected (month)" value={fmt("paidThisMonth")} tone="blue" />
-        <StatCard label="Active contracts" value={fmt("activeContracts")} tone="violet" />
+        <StatCard label="Active contracts" value={fmt("activeContracts")} tone="teal" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><BarChart3 className="size-4 text-accent-400" /> Metrics with lineage</h3>
           <p className="mt-0.5 text-xs text-slate-500">Every number is derived on read — click a metric to see where it came from.</p>
@@ -304,7 +304,7 @@ function PriceBooksTab({ isAdmin }: { isAdmin: boolean }) {
         </div>
       )}
       {books.length === 0 && <EmptyState icon={<Files className="size-8" />} title="No price books" hint="The default book is created lazily on first use." />}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {books.map((b) => (
           <BookCard key={b.id} book={b} products={products} isAdmin={isAdmin} onSaveEntries={saveEntries} onSaveDiscounts={saveDiscounts} />
         ))}
@@ -1047,7 +1047,7 @@ function BillingTab({ isAdmin }: { isAdmin: boolean }) {
         </div>
       )}
       {tickResult && <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">engine pass: {tickResult}</div>}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div>
           <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-white"><Receipt className="size-4 text-accent-400" /> Invoices</h3>
           <div className="space-y-2">

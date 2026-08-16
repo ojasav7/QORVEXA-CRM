@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, GripVertical, Download, Layers } from "lucide-react";
 import { api, patch, post, downloadCsv, ApiError } from "../lib/api";
-import { Field, Modal, Spinner } from "../components/ui";
+import { useToast } from "../App";
+import { Alert, Field, Modal, PageHeader, Spinner } from "../components/ui";
 import { money, date } from "../lib/format";
 import { STAGE_COLORS, type Pipeline, type PipelineStage } from "../lib/objects";
 
@@ -18,6 +20,7 @@ type Deal = {
 };
 
 export default function DealsPage() {
+  const toast = useToast();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +30,16 @@ export default function DealsPage() {
 
   const [activePipelineId, setActivePipelineId] = useState<string | null>(null); // null = default pipeline
   const defaultPipelineId = useMemo(() => pipelines.find((p) => p.isDefault)?.id ?? pipelines[0]?.id ?? null, [pipelines]);
+  const [params, setParams] = useSearchParams();
+  // Quick-create support: /deals?new=1 opens the create modal (topbar + New, D
+  // shortcut). Re-fires on param change so a repeat press works, and the param
+  // is stripped after opening so refresh doesn't re-open the modal.
+  useEffect(() => {
+    if (params.get("new") === "1") {
+      setCreating(true);
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams]);
 
   const loadPipelines = useCallback(async () => {
     try {
@@ -89,23 +102,25 @@ export default function DealsPage() {
     setDeals((ds) => ds.map((d) => (d.id === id ? { ...d, stage: toStage, probability: stageDef?.probability ?? d.probability } : d)));
     try {
       await patch(`/api/opportunities/${id}`, { stage: toStage });
-      // eslint-disable-next-line no-empty
-    } catch {}
+      toast("success", `${deal.name} moved to ${stageDef?.label ?? toStage}`);
+    } catch {
+      toast("error", `Could not move ${deal.name} — try again`);
+    }
   };
 
   return (
     <div className="animate-fade-up">
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Deals</h1>
-          <p className="text-sm text-slate-500">Drag deals between stages — changes fire <span className="font-mono text-accent-400">deal.stage_changed</span> events.</p>
-        </div>
-        <div className="ml-auto flex gap-2">
-          <button className="btn-ghost" onClick={exportCsv} title="Export pipeline as CSV"><Download className="size-4" /> Export CSV</button>
-          <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New deal</button>
-        </div>
-      </div>
-      {error && <div className="mb-4 rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
+      <PageHeader
+        title="Deals"
+        description={<>Drag deals between stages — changes fire <span className="font-mono text-accent-400">deal.stage_changed</span> events.</>}
+        actions={
+          <>
+            <button className="btn-ghost" onClick={exportCsv} title="Export pipeline as CSV"><Download className="size-4" /> Export CSV</button>
+            <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New deal</button>
+          </>
+        }
+      />
+      {error && <Alert tone="error" onDismiss={() => setError(null)}>{error}</Alert>}
 
       {/* Pipeline switcher (Phase 2-lite) */}
       {pipelines.length > 0 && (
@@ -139,7 +154,7 @@ export default function DealsPage() {
           No pipeline configured yet — create one in <span className="text-slate-300">Settings → Pipelines</span>.
         </div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div role="region" aria-label="Deal stages" tabIndex={0} className="flex gap-4 overflow-x-auto pb-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500/60 rounded-xl">
           {columns.map((col) => {
             const colDeals = deals.filter((d) => d.stage === col.key);
             const total = colDeals.reduce((s, d) => s + d.amount, 0);

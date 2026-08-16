@@ -152,7 +152,7 @@ export default function JourneysPage() {
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <Badge tone="blue">{j.triggerLabel}</Badge>
                 <Badge tone="amber">{j.steps.length} step{j.steps.length === 1 ? "" : "s"}</Badge>
-                <Badge tone="violet"><Users className="size-3" /> {j.enrolledCount}</Badge>
+                <Badge tone="teal"><Users className="size-3" /> {j.enrolledCount}</Badge>
               </div>
               <div className="mt-3 flex min-h-9 flex-wrap gap-1">
                 {j.steps.slice(0, 4).map((s, i) => (

@@ -43,13 +43,13 @@ type Overview = {
   commissionEarned: number; pipelineValue: number; changeSets: number; promoted: number;
 };
 
-const KIND_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "violet"> = {
-  app: "blue", agent: "violet", integration: "amber", template: "green",
+const KIND_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "teal"> = {
+  app: "blue", agent: "teal", integration: "amber", template: "green",
   installed: "green", uninstalled: "default",
   registered: "blue", approved: "amber", won: "green", lost: "default",
   draft: "amber", promoted: "green", failed: "rose",
   active: "green", inactive: "default",
-  reseller: "blue", referral: "violet", technology: "amber", consultant: "green",
+  reseller: "blue", referral: "teal", technology: "amber", consultant: "green",
 };
 const badge = (s: string) => <Badge tone={KIND_TONE[s] ?? "default"}>{s.replace("_", " ")}</Badge>;
 const SURFACE_LABEL: Record<string, string> = {
@@ -68,8 +68,8 @@ export default function EcosystemPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Store className="size-4 text-violet-400" /> Ecosystem
-            <span className="chip bg-violet-500/15 text-violet-300">marketplace · apps · partners · change sets · schema safety</span>
+            <Store className="size-4 text-teal-400" /> Ecosystem
+            <span className="chip bg-teal-500/15 text-teal-300">marketplace · apps · partners · change sets · schema safety</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             The extensibility loop: a marketplace of apps/agents/integrations that install into the org, partner &amp; channel management with deal registration + derived commissions, change sets that promote config/schema changes between environments, and change-impact analysis before touching a custom field.
@@ -116,7 +116,7 @@ function OverviewTab() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Marketplace listings" value={ov.listings} sub={`${ov.installed} installed`} tone="violet" />
+        <StatCard label="Marketplace listings" value={ov.listings} sub={`${ov.installed} installed`} tone="teal" />
         <StatCard label="Active partners" value={ov.partners} sub={`${ov.partnerDeals} registered deals`} tone="blue" />
         <StatCard label="Commission earned" value={`$${ov.commissionEarned.toLocaleString()}`} sub={`$${ov.pipelineValue.toLocaleString()} pipeline`} tone="green" />
         <StatCard label="Change sets" value={ov.changeSets} sub={`${ov.promoted} promoted`} tone="amber" />

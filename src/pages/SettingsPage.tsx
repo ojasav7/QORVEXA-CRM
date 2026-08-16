@@ -222,7 +222,7 @@ function LeadCaptureTab() {
               {copied === `emb-${f.id}` ? <Check className="size-4 text-mint-400" /> : <Copy className="size-4" />} Embed
             </button>
             <button className="btn-ghost !px-3 !py-1.5" onClick={() => void toggleActive(f)}>{f.active ? "Pause" : "Publish"}</button>
-            <button onClick={() => void remove(f)} className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"><Trash2 className="size-4" /></button>
+            <button onClick={() => void remove(f)} aria-label="Delete form" className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"><Trash2 className="size-4" /></button>
           </div>
         ))}
         {forms.length === 0 && <div className="p-8 text-center text-sm text-slate-600">No forms yet — create one to get a public lead-capture URL.</div>}
@@ -376,7 +376,7 @@ function PipelinesTab() {
                 </button>
               )}
               <button className="btn-ghost !px-3 !py-1.5" onClick={() => setEditing(p)}><Pencil className="size-3.5" /> Edit</button>
-              <button onClick={() => void remove(p)} className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"><Trash2 className="size-4" /></button>
+              <button onClick={() => void remove(p)} aria-label="Delete pipeline" className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"><Trash2 className="size-4" /></button>
             </div>
           </div>
         ))}
@@ -1015,7 +1015,7 @@ function TeamTab() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  const roleTone: Record<string, string> = { admin: "violet", manager: "blue", rep: "default" };
+  const roleTone: Record<string, string> = { admin: "teal", manager: "blue", rep: "default" };
 
   return (
     <div className="card overflow-hidden">
@@ -1039,6 +1039,7 @@ function TeamTab() {
             {me?.role === "admin" && u.id !== me.id && (
               <button
                 onClick={() => { if (confirm(`Remove ${u.name} from the workspace?`)) { void del(`/api/users/${u.id}`).then(load); } }}
+                aria-label={`Remove ${u.name}`}
                 className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400"
               ><Trash2 className="size-4" /></button>
             )}
@@ -1132,7 +1133,7 @@ function FieldsTab() {
                   <Shield className={`size-4 ${restricted ? "text-amber-400" : ""}`} />
                 </button>
                 {f.isCustom && (
-                  <button onClick={() => { if (confirm("Delete this custom field?")) { void del(`/api/fields/${objectType}/${f.id}`).then(load); } }} className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400">
+                  <button onClick={() => { if (confirm("Delete this custom field?")) { void del(`/api/fields/${objectType}/${f.id}`).then(load); } }} aria-label="Delete custom field" className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400">
                     <Trash2 className="size-4" />
                   </button>
                 )}
@@ -1296,7 +1297,7 @@ function WebhooksTab() {
             <button onClick={() => copy(h.secret)} className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-white" title="Copy signing secret">
               {copied === h.secret.slice(0, 8) ? <Check className="size-4 text-mint-400" /> : <KeyRound className="size-4" />}
             </button>
-            <button onClick={() => { if (confirm("Delete this webhook?")) { void del(`/api/webhooks/${h.id}`).then(load); } }} className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400">
+            <button onClick={() => { if (confirm("Delete this webhook?")) { void del(`/api/webhooks/${h.id}`).then(load); } }} aria-label="Delete webhook" className="rounded-lg p-2 text-slate-600 hover:bg-rose-500/15 hover:text-rose-400">
               <Trash2 className="size-4" />
             </button>
           </div>

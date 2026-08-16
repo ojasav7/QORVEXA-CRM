@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search, Pencil, Trash2, Send, AlertTriangle, Lock, Unlock, ArrowUpRight, GitMerge, RefreshCw, MessageSquare } from "lucide-react";
 import { api, del, patch, post, ApiError } from "../lib/api";
-import { Badge, EmptyState, Field, Modal, Spinner } from "../components/ui";
+import { Alert, Badge, EmptyState, Field, Modal, PageHeader, Spinner } from "../components/ui";
 import { timeAgo } from "../lib/format";
 import { PRIORITY_TONES, STATUS_TONES, SLA_TONES, TICKET_PRIORITIES, TICKET_CHANNELS, TICKET_STATUSES } from "../lib/objects";
 import { useSession } from "../App";
@@ -105,27 +105,27 @@ export default function TicketsPage() {
 
   return (
     <div className="animate-fade-up">
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Tickets</h1>
-          <p className="text-sm text-slate-500">Customer service queues — SLAs, escalation, legal hold. Tickets are full CRM objects (audit + events + workflows).</p>
-        </div>
-        <div className="ml-auto flex gap-2">
-          <button className="btn-ghost" onClick={() => void sweep()} disabled={sweeping} title="Check for SLA breaches + auto-escalate high/urgent">
-            <RefreshCw className={`size-4 ${sweeping ? "animate-spin" : ""}`} /> {sweeping ? "Sweeping…" : "SLA sweep"}
-          </button>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search subject…" className="input w-48 pl-9" />
-          </div>
-          <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New ticket</button>
-        </div>
-      </div>
-      {error && <div className="mb-4 rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
+      <PageHeader
+        title="Tickets"
+        description="Customer service queues — SLAs, escalation, legal hold. Tickets are full CRM objects (audit + events + workflows)."
+        actions={
+          <>
+            <button className="btn-ghost" onClick={() => void sweep()} disabled={sweeping} title="Check for SLA breaches + auto-escalate high/urgent">
+              <RefreshCw className={`size-4 ${sweeping ? "animate-spin" : ""}`} /> {sweeping ? "Sweeping…" : "SLA sweep"}
+            </button>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search subject…" aria-label="Search tickets" className="input w-48 pl-9" />
+            </div>
+            <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New ticket</button>
+          </>
+        }
+      />
+      {error && <Alert tone="error" onDismiss={() => setError(null)}>{error}</Alert>}
       {sweepResult && (
-        <div className="mb-4 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
+        <Alert tone="success" onDismiss={() => setSweepResult(null)}>
           SLA sweep: {sweepResult.checked} open tickets checked · {sweepResult.breached} breached · {sweepResult.escalated} escalated.
-        </div>
+        </Alert>
       )}
 
       {/* Queue tabs */}

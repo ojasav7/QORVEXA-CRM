@@ -78,7 +78,7 @@ export default function PortalsPage() {
               <p className="mt-1 line-clamp-2 min-h-8 text-xs text-slate-500">{p.description || "No description"}</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <Badge tone="blue">/p/{p.slug}</Badge>
-                {p.autoCreateContact ? <Badge tone="violet">auto-contact</Badge> : <Badge tone="default">no auto-contact</Badge>}
+                {p.autoCreateContact ? <Badge tone="teal">auto-contact</Badge> : <Badge tone="default">no auto-contact</Badge>}
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-3">
                 <a href={`/p/${p.slug}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-accent-400 hover:underline">

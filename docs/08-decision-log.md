@@ -1041,3 +1041,69 @@ the token machinery without becoming a backdoor to the whole API.
 - (−) IPv6 support is CIDR-lite (exact + `/0`); encryption at-rest/in-transit
   remain documented posture flags until multi-region hosting lands; i18n
   ships the catalog + QA scaffold, not full string translation of every page.
+
+## ADR-027 · Phase 15 Differentiators = the same discipline applied to the "1-of-1" layer (deterministic + explainable + evented, one router per differentiator)
+
+**Status:** Accepted
+
+**Context:** The blueprint's Phase 15 (the 16th and final phase) is a list of
+one-of-one differentiators — Business Brain, Relationship Graph v2,
+organizational memory, multi-agent orchestration, Deal X-Ray, the Opportunity
+Radar, the AI Deal Detective, the CRM Time Machine, the Business Digital Twin
+(What-If simulator), AI-built generators, a voice/computer-use console, and
+Universal Business Query. These are the most "AI-shaped" features in the
+blueprint, which raises the architecture questions the previous phases
+already answered: (1) how to synthesize across every module without a black
+box, (2) how to reuse the audit trail + event log as a historical substrate
+instead of copying data, (3) how agents that already have a risk-tiered
+platform (ADR-021) compose into orchestrations, and (4) how the 12 features
+ship as one coherent surface without 12 new routers.
+
+**Decision:**
+
+1. **The Business Brain is a deterministic, derived insight ledger, not an
+   LLM.** `scanBrain()` runs 8 rule families (stalled deals, stale pipeline,
+   outliers, unreasoned outcomes, at-risk accounts, expansion, expected
+   closes, breached SLAs) over live rows + the event log, upserts by
+   fingerprint, prunes open insights whose fingerprint stopped matching
+   reality, and emits `insight.generated` only for new ones. Evidence is a
+   first-class field on every row (ADR-018 derived-on-read + ADR-020
+   explainability discipline).
+2. **The Time Machine reads the audit trail; snapshots are durable
+   point-in-time copies with a retention window.** Reconstruction is derived
+   from the existing `AuditLog` (every mutation is already audited) — no
+   second history store; `TimeMachineSnapshot` (blueprint entity) captures
+   full-org or per-record states with `retentionUntil` pruning. Same
+   row-as-config pattern as ADR-009/015/017.
+3. **Orchestration = rows that fan events out to the Phase 9 agents.**
+   `AgentOrchestrator` (trigger, childAgentIds, mode, runCount) + an
+   `AgentDelegation` parent→child chain that reuses `AgentRun`; the engine
+   subscribes to the event bus like ADR-015/021/023/024 engines. No new
+   execution machinery — the children keep their 🟢🟡🔴 governance.
+4. **Generators target existing registries.** The natural-language builder
+   emits working rows into the Phase 3 workflow, Phase 9 agent, Phase 6
+   report, and Phase 0 custom-field registries — it creates config, never a
+   parallel system.
+5. **System actors stay the zero ObjectId (ADR-026 §5).** The memory engine
+   learns from the event bus as the system actor; a first verification bug
+   (literal `"system"` into an ObjectId column → Prisma P2023, silent memory
+   loss) was fixed with the sentinel.
+6. **One router, one page.** All twelve differentiators mount under
+   `/api/brain` with per-area `diff.*` gates (ADR-008) and render on the
+   Brain page's 11 tabs; reads are open to authenticated users, config writes
+   admin-only — the same governance as every prior phase.
+
+**Consequences:**
+- (+) Every differentiator is explainable (factor lists, evidence arrays,
+  model assumptions in `docs/52-…`, methodology in `docs/51-…`) and evented
+  (`insight.generated`, `snapshot.created`, `simulation.completed`,
+  `memory.recorded`, `opportunity.detected`, `risk.detected`,
+  `agent.delegated`, `builder.generated`).
+- (+) The audit/event substrate means the Time Machine + Deal Detective +
+  memory add no data copies and stay correct by construction.
+- (+) 90/90 live smoke checks (`verify-phase15.sh`) + Phase 14 (106/106) and
+  Phase 13 (53/53) regressions green — all 16 blueprint phases (0–15) are now
+  complete.
+- (−) Graph-v2 roles are derived heuristics (title + involvement), not
+  curated; the simulator is deterministic arithmetic, not probabilistic; UBQ
+  answers the phrasings its parser understands rather than hallucinating.

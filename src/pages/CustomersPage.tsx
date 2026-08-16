@@ -209,7 +209,7 @@ export default function CustomersPage() {
     return [
       { label: "Unified profiles", value: overview.profiles, tone: "blue" as const, sub: `${overview.merged} merged identities` },
       { label: "Records unified", value: overview.records, tone: "green" as const, sub: `${overview.contacts} contacts · ${overview.leads} leads` },
-      { label: "Behaviors tracked", value: overview.behaviors, tone: "violet" as const, sub: Object.keys(overview.behaviorByType).length + " touchpoint types" },
+      { label: "Behaviors tracked", value: overview.behaviors, tone: "teal" as const, sub: Object.keys(overview.behaviorByType).length + " touchpoint types" },
       { label: "At-risk customers", value: overview.atRisk, tone: overview.atRisk > 0 ? "amber" as const : "green" as const, sub: `avg health ${overview.avgHealth}/100` },
     ];
   }, [overview]);
@@ -275,13 +275,13 @@ export default function CustomersPage() {
                 className="card group p-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-accent-500/30"
               >
                 <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent-500/30 to-violet-500/30 text-xs font-bold text-accent-200 ring-1 ring-white/10">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent-500/30 to-teal-500/30 text-xs font-bold text-accent-200 ring-1 ring-white/10">
                     {initials(p.name)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-white">{p.name}</span>
-                      {p.memberCount > 1 && <Badge tone="violet">unified ×{p.memberCount}</Badge>}
+                      {p.memberCount > 1 && <Badge tone="teal">unified ×{p.memberCount}</Badge>}
                     </div>
                     <div className="truncate text-xs text-slate-500">{p.email}</div>
                     <div className="mt-0.5 truncate text-xs text-slate-600">
@@ -358,13 +358,13 @@ function ProfileDrawer({ view, onClose, onReload }: { view: Profile360; onClose:
     <Drawer onClose={onClose}>
       <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-accent-500/30 to-violet-500/30 text-xs font-bold text-accent-200 ring-1 ring-white/10">
+          <div className="flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-accent-500/30 to-teal-500/30 text-xs font-bold text-accent-200 ring-1 ring-white/10">
             {initials(p.name)}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-base font-semibold text-white">{p.name}</span>
-              {p.memberCount > 1 && <Badge tone="violet"><Fingerprint className="size-3" /> unified</Badge>}
+              {p.memberCount > 1 && <Badge tone="teal"><Fingerprint className="size-3" /> unified</Badge>}
             </div>
             <div className="text-xs text-slate-500">{p.email}</div>
           </div>
@@ -395,10 +395,10 @@ function ProfileDrawer({ view, onClose, onReload }: { view: Profile360; onClose:
               <InfoCell label="Account" value={p.account?.name ?? "—"} />
             </div>
             {p.memberCount > 1 && (
-              <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-300">
+              <div className="rounded-xl border border-teal-500/20 bg-teal-500/10 p-3 text-xs text-teal-300">
                 <div className="flex items-center gap-1.5 font-medium"><Fingerprint className="size-3.5" /> Identity resolution unified {p.memberCount} records</div>
-                <div className="mt-1 text-violet-300/70">{p.memberIds.join(" · ")}</div>
-                {p.mergedFromIds.length > 0 && <div className="mt-1 text-violet-300/50">Merged from: {p.mergedFromIds.join(", ")}</div>}
+                <div className="mt-1 text-teal-300/70">{p.memberIds.join(" · ")}</div>
+                {p.mergedFromIds.length > 0 && <div className="mt-1 text-teal-300/50">Merged from: {p.mergedFromIds.join(", ")}</div>}
               </div>
             )}
             <div>

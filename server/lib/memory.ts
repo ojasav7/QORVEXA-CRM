@@ -15,6 +15,15 @@ import { badRequest } from "./http";
 
 const DAY = 86_400_000;
 
+// A valid all-zero ObjectId used as the actor for machine-learned entries —
+// the same system-actor sentinel the security engine uses for SCIM
+// (SCIM_ACTOR_ID in lib/security.ts). createdBy / event actorId are ObjectId
+// columns, so a bare "system" string would fail Prisma's ObjectId validation.
+const SYSTEM_ACTOR_ID = "000000000000000000000000";
+function actorFor(actorId: string): string {
+  return /^[0-9a-fA-F]{24}$/.test(actorId) ? actorId : SYSTEM_ACTOR_ID;
+}
+
 type MemoryInput = {
   scope: string;
   scopeId?: string | null;
@@ -50,10 +59,10 @@ export async function recordMemory(orgId: string, environment: string, actorId: 
       fingerprint,
       confidence: input.confidence ?? 70,
       expiresAt: input.expiresAt ?? null,
-      createdBy: actorId,
+      createdBy: actorFor(actorId),
     },
   });
-  await emitEvent({ orgId, environment, type: "memory.recorded", entity: input.scope === "org" ? "brain" : input.scope, entityId: row.id, actorId, payload: { scope: input.scope, scopeId: input.scopeId, kind: input.kind, fingerprint } });
+  await emitEvent({ orgId, environment, type: "memory.recorded", entity: input.scope === "org" ? "brain" : input.scope, entityId: row.id, actorId: actorFor(actorId), payload: { scope: input.scope, scopeId: input.scopeId, kind: input.kind, fingerprint } });
   return { row, created: true };
 }
 

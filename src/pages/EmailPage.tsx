@@ -25,10 +25,10 @@ export type Message = {
   createdAt: string;
 };
 
-const statusTone: Record<Message["status"], "default" | "blue" | "green" | "amber" | "violet"> = {
+const statusTone: Record<Message["status"], "default" | "blue" | "green" | "amber" | "teal"> = {
   sent: "default",
   opened: "blue",
-  clicked: "violet",
+  clicked: "teal",
   replied: "green",
 };
 
@@ -276,7 +276,7 @@ function MessageModal({ message, onClose, onReply, onDelete }: { message: Messag
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {message.openedAt && <Badge tone="blue"><Eye className="size-3" /> opened {timeAgo(message.openedAt)}{message.openedCount > 1 ? ` ×${message.openedCount}` : ""}</Badge>}
-            {message.clickedAt && <Badge tone="violet"><MousePointerClick className="size-3" /> clicked {timeAgo(message.clickedAt)}</Badge>}
+            {message.clickedAt && <Badge tone="teal"><MousePointerClick className="size-3" /> clicked {timeAgo(message.clickedAt)}</Badge>}
             {message.repliedAt && <Badge tone="green"><MessageSquareReply className="size-3" /> replied {timeAgo(message.repliedAt)}</Badge>}
             {message.templateId && <Badge tone="default"><FileText className="size-3" /> from template</Badge>}
           </div>

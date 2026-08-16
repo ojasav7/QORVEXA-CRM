@@ -1,0 +1,31 @@
+# Dependencies — installed inside the image
+node_modules/
+
+# Build output — rebuilt in the builder stage
+dist/
+build/
+out/
+
+# Secrets — never baked into an image
+.env
+.env.local
+.env.*.local
+
+# Git / CI
+.git
+.gitignore
+.github/
+
+# Runtime data (host-side) — mounted as volumes in production
+backups/
+portability/
+
+# Docs, skills and QA artifacts — not needed at runtime
+docs/
+verify-*.sh
+qa_*.py
+*.log
+.agents/
+.claude/
+.codex/
+.impeccable/

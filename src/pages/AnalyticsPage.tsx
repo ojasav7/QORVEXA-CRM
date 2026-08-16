@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api, get, post } from "../lib/api";
 import { Badge, EmptyState, Spinner, StatCard } from "../components/ui";
 import { money } from "../lib/format";
-import { BarChart3, TrendingUp, AlertTriangle, Info, RefreshCw, Sparkles } from "lucide-react";
+import { BarChart3, TrendingUp, AlertTriangle, Info, RefreshCw, Sparkles, PieChart } from "lucide-react";
+import { ChartCard, Donut, HBarRow, colorFor, type Segment } from "../components/charts";
 
 type Metric = { key: string; label: string; value: number | string | null; format: string; sources: { entity: string; query: string; note: string }[] };
 type MetricGroup = { kind: string; label: string; metrics: Metric[] };
@@ -28,6 +29,157 @@ function fmt(m: Metric): string {
   return String(m.value);
 }
 
+// ── Spec §52 — filtered analytics: pick an attribute and the visualization ──
+// updates. Data is aggregated client-side from the existing list endpoints
+// (no invented APIs): leads (source/status/owner/month) and deals (stage /
+// pipeline/owner/month, weighted by amount).
+type AnalyzeRecord = Record<string, any>;
+const LEAD_DIMS = [
+  { key: "source", label: "Source" },
+  { key: "status", label: "Status" },
+  { key: "owner", label: "Owner" },
+  { key: "month", label: "Month" },
+];
+const DEAL_DIMS = [
+  { key: "stage", label: "Stage" },
+  { key: "pipeline", label: "Pipeline" },
+  { key: "owner", label: "Owner" },
+  { key: "month", label: "Month" },
+];
+const DIM_LABELS: Record<string, string> = {
+  source: "Source", status: "Status", owner: "Owner", month: "Month", stage: "Stage", pipeline: "Pipeline",
+};
+
+function monthLabel(iso: string | null | undefined): string {
+  if (!iso) return "None";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "None";
+  return d.toLocaleString("en-US", { month: "short", year: "2-digit" }).replace(" ", " ’");
+}
+
+function dimValue(r: AnalyzeRecord, dim: string, ownerNames: Record<string, string>): string {
+  if (dim === "month") return monthLabel(r.createdAt);
+  if (dim === "owner") return ownerNames[r.ownerId] ?? "Unassigned";
+  if (dim === "pipeline") return r.pipelineId_label ?? "None";
+  const v = r[dim];
+  if (v === null || v === undefined || v === "") return "None";
+  return String(v);
+}
+
+function AnalyzePanel() {
+  const [dataset, setDataset] = useState<"leads" | "deals">("leads");
+  const [dim, setDim] = useState("source");
+  const [rows, setRows] = useState<Record<"leads" | "deals", AnalyzeRecord[]> | null>(null);
+  const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([
+      get<{ items: AnalyzeRecord[] }>("/api/leads?pageSize=500"),
+      get<{ items: AnalyzeRecord[] }>("/api/opportunities?pageSize=500"),
+      get<{ items: { id: string; name: string }[] }>("/api/users?pageSize=200"),
+    ]).then(([l, d, u]) => {
+      if (!alive) return;
+      setOwnerNames(Object.fromEntries((u.items ?? []).map((x) => [x.id, x.name])));
+      setRows({ leads: l.items ?? [], deals: d.items ?? [] });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const dims = dataset === "leads" ? LEAD_DIMS : DEAL_DIMS;
+  // Keep the selected dimension valid when the dataset switches.
+  const activeDim = dims.some((d) => d.key === dim) ? dim : dims[0].key;
+
+  const byDim = useMemo(() => {
+    const recs = rows?.[dataset] ?? [];
+    const buckets = new Map<string, { label: string; count: number; amount: number }>();
+    for (const r of recs) {
+      const label = dimValue(r, activeDim, ownerNames);
+      const b = buckets.get(label) ?? { label, count: 0, amount: 0 };
+      b.count += 1;
+      b.amount += Number(r.amount ?? 0) || 0;
+      buckets.set(label, b);
+    }
+    const list = [...buckets.values()].sort((a, b) => (dataset === "deals" ? b.amount - a.amount : b.count - a.count));
+    const total = dataset === "deals" ? list.reduce((s, x) => s + x.amount, 0) : recs.length;
+    return { list, total };
+  }, [rows, dataset, activeDim, ownerNames]);
+
+  const top = byDim.list.slice(0, 8);
+  const max = Math.max(...top.map((t) => (dataset === "deals" ? t.amount : t.count)), 1);
+  const donutSegments: Segment[] = byDim.list.slice(0, 6).map((b) => ({ label: b.label, value: dataset === "deals" ? b.amount : b.count }));
+  const rest = byDim.list.slice(6).reduce((s, x) => s + (dataset === "deals" ? x.amount : x.count), 0);
+  if (rest > 0) donutSegments.push({ label: "Other", value: rest });
+
+  const valueFmt = dataset === "deals" ? (v: number) => money(v) : (v: number) => `${v}`;
+  const centerValue = dataset === "deals" ? byDim.total : byDim.list.reduce((s, x) => s + x.count, 0);
+
+  return (
+    <ChartCard
+      title={
+        <span className="flex items-center gap-2"><PieChart className="size-4 text-accent-400" /> Analyze by</span>
+      }
+      sub="Pick an attribute — the chart updates to that dataset (spec §52)."
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg bg-white/[0.04] p-0.5">
+            {([["leads", "Leads"], ["deals", "Deals"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setDataset(k)}
+                aria-pressed={dataset === k}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${dataset === k ? "bg-accent-500/20 text-accent-300" : "text-slate-400 hover:text-slate-200"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {dims.map((d) => (
+            <button
+              key={d.key}
+              onClick={() => setDim(d.key)}
+              aria-pressed={activeDim === d.key}
+              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${activeDim === d.key ? "bg-accent-500/20 text-accent-300 ring-1 ring-accent-500/40" : "bg-white/[0.04] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200"}`}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {!rows ? (
+        <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="skeleton h-8" />)}</div>
+      ) : byDim.list.length === 0 ? (
+        <EmptyState icon={<PieChart className="size-5" />} title="No records to analyze" hint={`Create some ${dataset} to see the breakdown here.`} />
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_18rem]">
+          <div className="space-y-3">
+            <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+              {dataset === "deals" ? "Deal" : "Lead"} {DIM_LABELS[activeDim]} performance
+            </div>
+            {top.map((b, i) => {
+              const val = dataset === "deals" ? b.amount : b.count;
+              const pct = byDim.total > 0 ? (val / (dataset === "deals" ? byDim.total : centerValue)) * 100 : 0;
+              return <HBarRow key={b.label} label={b.label} value={val} pct={pct} max={max} fmt={valueFmt} color={colorFor(i)} />;
+            })}
+            {byDim.list.length > 8 && (
+              <p className="text-[11px] text-slate-600">+{byDim.list.length - 8} more — showing the top {Math.min(byDim.list.length, 8)}.</p>
+            )}
+          </div>
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-ink-800/40 p-4">
+            <Donut
+              segments={donutSegments}
+              centerLabel="total"
+              centerValue={centerValue}
+              fmt={valueFmt}
+            />
+          </div>
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
 function MetricCard({ m }: { m: Metric }) {
   const [open, setOpen] = useState(false);
   const tone = (m.format === "percent" && Number(m.value) < 30) || (m.format === "currency" && Number(m.value) < 0) ? "amber" : "blue";
@@ -45,7 +197,7 @@ function MetricCard({ m }: { m: Metric }) {
       </div>
       <div className={`mt-2 text-2xl font-semibold tabular-nums ${tone === "amber" ? "text-amber-400" : "text-accent-300"}`}>{fmt(m)}</div>
       {open && (
-        <div className="mt-3 space-y-2 rounded-lg border border-white/[0.06] bg-black/30 p-3">
+        <div className="mt-3 space-y-2 rounded-lg border border-[var(--border-subtle)] bg-ink-800/60 p-3">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Where this number comes from</div>
           {m.sources.map((s, i) => (
             <div key={i} className="text-xs">
@@ -139,7 +291,7 @@ function ForecastPanel({ data }: { data: Forecast }) {
 
 function ForecastTile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-ink-800/40 p-3">
       <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{label}</div>
       <div className={`mt-1 text-lg font-semibold tabular-nums ${accent ? "text-accent-300" : "text-white"}`}>{value}</div>
       {sub && <div className="mt-0.5 text-[11px] text-slate-600">{sub}</div>}
@@ -152,17 +304,17 @@ function PredictionsPanel({ conversions, churn, ltvs }: { conversions: Predictio
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       <div className="card p-6">
         <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-          <Sparkles className="size-4 text-violet-400" /> Conversion likelihood
+          <Sparkles className="size-4 text-teal-400" /> Conversion likelihood
         </h3>
         <div className="space-y-3">
           {conversions.map((c) => (
             <div key={c.dealId} className="text-xs">
               <div className="flex items-center justify-between">
                 <span className="truncate text-slate-300">{c.name}</span>
-                <span className="font-semibold tabular-nums text-violet-400">{c.score}%</span>
+                <span className="font-semibold tabular-nums text-teal-400">{c.score}%</span>
               </div>
               <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-800">
-                <div className="h-full rounded-full bg-violet-500" style={{ width: `${c.score}%` }} />
+                <div className="h-full rounded-full bg-teal-500" style={{ width: `${c.score}%` }} />
               </div>
               <div className="mt-1 text-[11px] text-slate-600">{c.stage} · {Object.values(c.inputs).join(" · ")}</div>
             </div>
@@ -246,6 +398,8 @@ export default function AnalyticsPage() {
           </button>
         ))}
       </div>
+
+      <AnalyzePanel />
 
       {loading ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

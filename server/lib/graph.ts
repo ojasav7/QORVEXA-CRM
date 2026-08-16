@@ -223,13 +223,13 @@ export async function graphV2ForDeal(orgId: string, environment: string, dealId:
   const filled = new Set(roles);
   const gaps = EXPECTED_ROLES.filter((r) => !filled.has(r));
   const coverage = Math.round((roles.filter((r) => r !== "coach").length / EXPECTED_ROLES.length) * 100);
-  return { ...base, committee, roles: filled, coverage, gaps };
+  return { ...base, committee, roles: [...filled], coverage, gaps };
 }
 
 /** The account's committee with derived roles + coverage (v2). */
 export async function graphV2ForAccount(orgId: string, environment: string, accountId: string) {
   const base = await graphForAccount(orgId, environment, accountId);
-  const contactIds = base.contacts.map((c: any) => c.id);
+  const contactIds = base.contacts.map((c: any) => c.contact.id);
   const openTickets = contactIds.length
     ? await db().ticket.findMany({ where: { orgId, environment, contactId: { in: contactIds }, status: { notIn: ["resolved", "closed"] } }, select: { contactId: true } })
     : [];
@@ -238,14 +238,15 @@ export async function graphV2ForAccount(orgId: string, environment: string, acco
 
   const roles: string[] = [];
   const contacts = base.contacts.map((c: any) => {
-    const blockerSignal = (ticketMap.get(c.id) ?? 0) >= 2;
+    const contact = c.contact;
+    const blockerSignal = (ticketMap.get(contact.id) ?? 0) >= 2;
     const primary = c.deals?.some((d: any) => d.primary) ?? false;
-    const role = roleFor({ title: c.title, influence: c.totalInfluence, primary, blockerSignal });
+    const role = roleFor({ title: contact.title, influence: c.totalInfluence, primary, blockerSignal });
     roles.push(role);
-    return { ...c, role, openTickets: ticketMap.get(c.id) ?? 0 };
+    return { ...c, role, openTickets: ticketMap.get(contact.id) ?? 0 };
   });
   const filled = new Set(roles);
   const gaps = EXPECTED_ROLES.filter((r) => !filled.has(r));
   const coverage = Math.round((roles.filter((r) => r !== "coach").length / EXPECTED_ROLES.length) * 100);
-  return { ...base, contacts, roles: filled, coverage, gaps };
+  return { ...base, contacts, roles: [...filled], coverage, gaps };
 }

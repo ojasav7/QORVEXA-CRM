@@ -168,9 +168,23 @@ See `docs/39-spec-phase13.md` + `docs/41-developer-platform.md` + `docs/42-marke
 
 See `docs/44-spec-phase14.md` + `docs/45-phase14-build-report.md` + `docs/46-security-whitepaper.md` + `docs/47-compliance-matrix.md` + `docs/48-accessibility-conformance.md` + ADR-026.
 
-## Phase 15 — Differentiators ⬜
+## Phase 15 — Differentiators ✅ **COMPLETE**
 
-Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Time Machine (**audit + events already provide the history substrate**), simulators, voice/computer-use agent, universal business query.
+- **Business Brain — ✅** (`diff.brain`): the blueprint's org-wide AI layer as a deterministic, explained `BusinessBrainInsight` ledger — 8 rule families (stalled deals, stale pipeline, outliers, unreasoned outcomes, at-risk accounts, expansion, expected closes, breached SLAs) upserted by fingerprint with per-insight evidence, stale-open pruning, `insight.generated`, ack/action/dismiss lifecycle, and a 6-hour engine ticker.
+- **Relationship Graph v2 — ✅** (`diff.graph`): derived buying-committee roles (champion / economic_buyer / technical / blocker / coach) + coverage % + missing-role gaps for both the deal and account views, layered on the Phase 7 influence graph.
+- **Organizational memory — ✅** (`diff.memory`): event-bus learning (email.replied → prefers email, deal won → "Won on …", contract signed → renewal date, …) with fingerprint dedup + TTL purge + manual record/forget; `memory.recorded`.
+- **Multi-agent orchestration — ✅** (`diff.orchestration`): orchestrators fan events out to the Phase 9 agents (sequential/parallel), `AgentDelegation` parent→child chains, `agent.delegated`, dry-run test.
+- **Deal X-Ray — ✅** (`diff.brain`): explainable 0–100 deal health from 5 factors (stage, 14/30d activity, committee coverage, competition, age) with flags + recommendation + confidence.
+- **Opportunity Radar — ✅** (`diff.brain`): consolidated upsell / churn / weak-deal / SLA-breach early-warning feed; `opportunity.detected` / `risk.detected` (24h dedup).
+- **AI Deal Detective — ✅** (`diff.brain`): root-cause for won/lost/at-risk deals from the event + audit trail (timeline, stage durations, price concessions, explained factors + verdict).
+- **CRM Time Machine — ✅** (`diff.timemachine`): reconstruct any record as-of any date from the audit trail (**the history substrate that already existed**), compare diffing, durable full/record snapshots with 90-day retention pruning + `snapshot.created`.
+- **Business Digital Twin — ✅** (`diff.simulator`): 5 deterministic What-If models (pricing / discount / churn / hiring / mix) over real data, validated + persisted `SimulationRun` rows, `simulation.completed`, assumptions documented.
+- **AI-built generators — ✅** (`diff.builder`): natural language → custom field / workflow / agent / report through the existing registries; duplicate → 400; `builder.generated`.
+- **Voice CRM & computer-use — ✅** (`diff.command`): risk-tiered command execution (🟢 execute / 🟡 propose-never-send / 🔴 refuse) + UBQ routing + navigation + simulated UI actions.
+- **Universal Business Query — ✅** (`diff.ubq`): natural language → real cross-object aggregations (sum/count/avg by dimension with filters + limits) with evidence.
+- **UI — ✅**: the **Brain** page (`/brain`, new nav section, 11 tabs: Brain / Graph v2 / X-Ray / Radar / Memory / Orchestration / Time machine / Simulator / Builder / Query / Console), role-aware (admin writes). Verified live **90/90** (`verify-phase15.sh`) + Phase 14 (106/106) and Phase 13 (53/53) regression green. **All 16 blueprint phases (0–15) are complete.**
+
+See `docs/49-spec-phase15.md` + `docs/50-phase15-build-report.md` + `docs/51-business-brain-methodology.md` + `docs/52-simulation-model-assumptions.md` + `docs/53-time-machine-retention-policy.md` + ADR-027.
 
 ---
 
@@ -189,4 +203,4 @@ Business Brain, relationship graph v2, multi-agent orchestration, Deal X-Ray, Ti
 11. ~~**Phase 12**~~ — done (Field Operations: territories, visits + GPS check-ins + route optimization, work orders + dispatch + SLA, serialized assets + maintenance, inventory + reorder levels, offline sync with conflict resolution). Spec `docs/35-spec-phase12.md`, guide `docs/37-field-ops-guide.md`, offline-sync spec `docs/38-offline-sync-spec.md`, report `docs/36-phase12-build-report.md`.
 12. ~~**Phase 13**~~ — done (Ecosystem: app/agent marketplace with install payloads wired into the Phase 9 engine, partner & channel management with deal registration + derived commissions, change sets + env diff/promote, schema change-impact analysis + safe delete). Spec `docs/39-spec-phase13.md`, guides `docs/41-developer-platform.md` + `docs/42-marketplace-publishing-guide.md` + `docs/43-schema-change-safety.md`, report `docs/40-phase13-build-report.md`.
 13. ~~**Phase 14**~~ — done (Enterprise Security: DB-backed sessions + device management, self-service MFA with a two-step login, IP/CIDR allowlist + `security.threat_detected` alerts, security alert ledger, consent + privacy center with DSRs, retention/delete policies, vendor/sub-processor transparency, uptime status page + incidents, SCIM 2.0 provisioning with a confined scim scope, i18n + localization QA, WCAG 2.2 AA workstream). Spec `docs/44-spec-phase14.md`, report `docs/45-phase14-build-report.md`, whitepaper `docs/46-security-whitepaper.md`, compliance matrix `docs/47-compliance-matrix.md`, a11y report `docs/48-accessibility-conformance.md`.
-14. **Phase 15-lite** — Business Brain / multi-agent orchestration groundwork — or a Phase 15 slice (Deal X-Ray, Opportunity Radar, AI Deal Detective).
+14. ~~**Phase 15**~~ — done (Differentiators: the Business Brain, Relationship Graph v2, organizational memory, multi-agent orchestration, Deal X-Ray, the Opportunity Radar, the AI Deal Detective, the CRM Time Machine, the Business Digital Twin simulator, AI-built generators, the voice/computer-use console, and Universal Business Query). Verified **90/90** (`verify-phase15.sh`). **The full blueprint (16 phases) is complete.**

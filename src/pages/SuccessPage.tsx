@@ -28,14 +28,14 @@ type Program = { id: string; name: string; active: boolean; tiers: { key: string
 type Member = { id: string; programId: string; programName: string | null; contactName: string | null; accountId: string | null; points: number; tier: { key: string; name: string } };
 type Referral = { id: string; referredEmail: string; referredName: string | null; referrerName: string | null; status: string; pointsAwarded: number; createdAt: string };
 
-const STATUS_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "violet"> = {
+const STATUS_TONE: Record<string, "default" | "green" | "amber" | "rose" | "blue" | "teal"> = {
   draft: "default", active: "blue", at_risk: "rose", completed: "green", archived: "default",
-  onboarding: "blue", success: "violet", custom: "default",
+  onboarding: "blue", success: "teal", custom: "default",
   low: "green", medium: "amber", high: "amber", critical: "rose",
   pending: "default", contacted: "blue", converted: "green", expired: "default",
-  new: "default", triaged: "blue", planned: "violet", in_progress: "amber", shipped: "green", declined: "rose",
+  new: "default", triaged: "blue", planned: "teal", in_progress: "amber", shipped: "green", declined: "rose",
   positive: "green", neutral: "default", negative: "rose",
-  upsell: "violet", cross_sell: "blue", expansion: "green",
+  upsell: "teal", cross_sell: "blue", expansion: "green",
 };
 const tierBadge = (s: string) => <Badge tone={STATUS_TONE[s] ?? "default"}>{s.replace("_", " ")}</Badge>;
 
@@ -50,8 +50,8 @@ export default function SuccessPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <HeartHandshake className="size-4 text-violet-400" /> Customer Success
-            <span className="chip bg-violet-500/15 text-violet-300">plans · usage · churn · surveys · loyalty</span>
+            <HeartHandshake className="size-4 text-teal-400" /> Customer Success
+            <span className="chip bg-teal-500/15 text-teal-300">plans · usage · churn · surveys · loyalty</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Success plans with milestones + QBRs, product usage intelligence, explained churn prediction + expansion radar, NPS/CSAT/CES surveys with a feedback → roadmap pipeline, and loyalty/advocacy programs.
@@ -113,7 +113,7 @@ function PlansTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: boolean
         </div>
       )}
       {items.length === 0 && <EmptyState icon={<ListChecks className="size-8" />} title="No success plans yet" hint="Create an onboarding or success plan for an account." />}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {items.map((p) => {
           const done = p.milestones.filter((m) => m.status === "done").length;
           return (
@@ -329,7 +329,7 @@ function UsageTab() {
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Feature adoption" value={data ? `${data.totals.adoptionPct}%` : "—"} sub={`${data?.totals.featuresUsed30 ?? 0} of ${data?.catalog.length ?? 0} features used`} tone="blue" />
-        <StatCard label="Accounts tracked" value={data?.totals.accountsTracked ?? "—"} sub={`${data?.totals.activeUsers30 ?? 0} active users`} tone="violet" />
+        <StatCard label="Accounts tracked" value={data?.totals.accountsTracked ?? "—"} sub={`${data?.totals.activeUsers30 ?? 0} active users`} tone="teal" />
         <StatCard label="Inactive accounts" value={data?.totals.inactiveAccounts ?? "—"} sub="no usage in 30+ days" tone="amber" />
         <StatCard label="Feature catalog" value={data?.catalog.length ?? "—"} sub={data?.catalog.join(", ") ?? ""} tone="green" />
       </div>
@@ -398,7 +398,7 @@ function ChurnTab({ isAdmin }: { isAdmin: boolean }) {
         </div>
         {isAdmin && <button className="btn-primary" onClick={() => void refresh()} disabled={refreshing}><RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh scores</button>}
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Target className="size-4 text-accent-400" /> Churn prediction v2</h3>
           <p className="mt-0.5 text-xs text-slate-500">Explained score: health 35% + usage 25% + support 20% + billing 25% + surveys 15% (docs/34).</p>
@@ -437,7 +437,7 @@ function ChurnTab({ isAdmin }: { isAdmin: boolean }) {
           </div>
         </div>
         <div className="card p-5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Megaphone className="size-4 text-violet-400" /> Expansion radar</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Megaphone className="size-4 text-teal-400" /> Expansion radar</h3>
           <p className="mt-0.5 text-xs text-slate-500">Derived upsell / cross-sell / expansion opportunities — expansion.opportunity_detected fires on tick.</p>
           <div className="mt-3 space-y-2">
             {opportunities.length === 0 && <p className="text-xs text-slate-600">No opportunities right now.</p>}
@@ -478,7 +478,7 @@ function SurveysTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: boole
           <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New survey</button>
         </div>
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <h3 className="text-sm font-semibold text-white">Surveys</h3>
           <div className="mt-3 space-y-2">
@@ -623,7 +623,7 @@ function LoyaltyTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: boole
           <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="size-4" /> New program</button>
         </div>
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Crown className="size-4 text-amber-400" /> Programs & members</h3>
           <div className="mt-3 space-y-3">
@@ -690,7 +690,7 @@ function LoyaltyTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: boole
           </div>
         </div>
         <div className="card p-5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Gift className="size-4 text-violet-400" /> Referrals</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Gift className="size-4 text-teal-400" /> Referrals</h3>
           <p className="mt-0.5 text-xs text-slate-500">pending → contacted → converted (referrer earns points) | expired.</p>
           <div className="mt-3 space-y-1.5">
             {referrals.map((r) => (

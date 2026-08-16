@@ -114,7 +114,7 @@ export default function CampaignsPage() {
               <p className="mt-1 line-clamp-2 min-h-8 text-xs text-slate-500">{c.description || "No description"}</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <Badge tone="blue">{c.audienceName ?? "No segment"}</Badge>
-                {c.ab?.enabled && <Badge tone="violet">A/B · {c.ab.splitA}% A</Badge>}
+                {c.ab?.enabled && <Badge tone="teal">A/B · {c.ab.splitA}% A</Badge>}
                 {c.winner && <Badge tone="green">Winner: {c.winner}</Badge>}
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg bg-white/[0.03] p-2 text-center">
@@ -293,11 +293,11 @@ function RecipientsPanel({ campaign, onClose }: { campaign: Campaign; onClose: (
           <StatCard label="Sent" value={stats.sent} />
           <StatCard label="Opened" value={stats.opened} tone="green" sub={`${stats.openRate}% open rate`} />
           <StatCard label="Clicked" value={stats.clicked} tone="amber" sub={`${stats.clickRate}% click rate`} />
-          <StatCard label="Attributed ROI" value={`$${stats.roi.toLocaleString()}`} tone="violet" sub={`${stats.wonDealIds.length} won deal${stats.wonDealIds.length === 1 ? "" : "s"}`} />
+          <StatCard label="Attributed ROI" value={`$${stats.roi.toLocaleString()}`} tone="teal" sub={`${stats.wonDealIds.length} won deal${stats.wonDealIds.length === 1 ? "" : "s"}`} />
         </div>
       )}
       {campaign.ab?.enabled && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-violet-500/10 px-4 py-3 text-sm text-violet-300">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-teal-500/10 px-4 py-3 text-sm text-teal-300">
           <Trophy className="size-4" />
           <span className="flex-1">A/B active — compare open rates and declare the winning subject.</span>
           <button className="btn-ghost !px-3 !py-1.5 text-xs" disabled={busy} onClick={() => void declareWinner("A")}>A wins</button>
@@ -313,7 +313,7 @@ function RecipientsPanel({ campaign, onClose }: { campaign: Campaign; onClose: (
         <div className="max-h-80 space-y-1.5 overflow-y-auto">
           {recipients.map((r) => (
             <div key={r.id} className="flex items-center gap-3 rounded-lg border border-white/[0.05] bg-ink-900/40 px-3 py-2 text-sm">
-              <span className="w-5 text-center text-xs font-semibold text-violet-400">{r.variant}</span>
+              <span className="w-5 text-center text-xs font-semibold text-teal-400">{r.variant}</span>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-slate-200">{r.contactName ?? "Unknown"}</div>
                 <div className="truncate text-xs text-slate-600">{r.contactEmail}</div>

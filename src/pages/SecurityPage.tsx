@@ -146,10 +146,10 @@ function OverviewTab() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Open alerts" value={ov.alertCount} sub={`${ov.alerts.length} recent security alerts`} tone={ov.alertCount ? "amber" : "green"} />
         <StatCard label="Active sessions" value={ov.sessions} sub="DB-backed device sessions" tone="blue" />
-        <StatCard label="Consent records" value={ov.consents} sub={`${ov.openDsrs} open data-subject requests`} tone="violet" />
+        <StatCard label="Consent records" value={ov.consents} sub={`${ov.openDsrs} open data-subject requests`} tone="teal" />
         <StatCard label="Retention policies" value={ov.policies} sub={`${ov.subProcessors} sub-processors · ${ov.openIncidents} open incidents`} tone="green" />
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="card p-4">
           <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">Security posture</p>
           <div className="space-y-2 text-sm">
@@ -679,7 +679,7 @@ function PrivacyTab({ isAdmin, isManager }: { isAdmin: boolean; isManager: boole
         <div className="space-y-2">
           {dsrs.map((d) => (
             <div key={d.id} className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-ink-900/50 px-4 py-3">
-              <Badge tone="violet">{d.type}</Badge>
+              <Badge tone="teal">{d.type}</Badge>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-white">{d.requesterEmail}</div>
                 <div className="text-xs text-slate-500">submitted {timeAgo(d.submittedAt)}{d.completedAt ? ` · completed ${timeAgo(d.completedAt)}` : ""}</div>
@@ -852,7 +852,7 @@ function StatusTab({ isAdmin }: { isAdmin: boolean }) {
             label={`${name} (${c.total} checks)`}
             value={`${c.uptimePct}%`}
             sub={`${c.up} up · ${c.degraded} degraded · ${c.down} down`}
-            tone={c.uptimePct >= 99 ? "green" : c.uptimePct >= 95 ? "amber" : "violet"}
+            tone={c.uptimePct >= 99 ? "green" : c.uptimePct >= 95 ? "amber" : "teal"}
           />
         ))}
       </div>
@@ -1070,7 +1070,7 @@ function ScimTab({ isAdmin }: { isAdmin: boolean }) {
     <div className="max-w-3xl space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard label="Provisioned users" value={info.users} tone="blue" />
-        <StatCard label="Provisioned groups" value={info.groups} tone="violet" />
+        <StatCard label="Provisioned groups" value={info.groups} tone="teal" />
         <StatCard label="SCIM tokens" value={info.scimTokens.length} sub="Bearer tokens with the scim scope" tone="green" />
       </div>
       <div className="card p-4">

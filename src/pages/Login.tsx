@@ -97,13 +97,14 @@ export default function Login() {
       <button
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
         className="absolute right-4 top-4 rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
       >
         {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
       </button>
       <div className="card w-full max-w-md animate-fade-up p-8">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-violet-500 text-2xl font-bold text-on-brand shadow-xl shadow-accent-500/30">
+          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-teal-500 text-2xl font-bold text-on-brand shadow-xl shadow-accent-500/30">
             Q
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white">QORVEXA CRM</h1>
@@ -175,12 +176,12 @@ export default function Login() {
         {!mfa && <form onSubmit={submit} className="space-y-4">
           {mode === "register" && (
             <>
-              <input className="input" placeholder="Company / workspace name" value={form.orgName} onChange={(e) => set("orgName", e.target.value)} required />
-              <input className="input" placeholder="Your name" value={form.name} onChange={(e) => set("name", e.target.value)} required />
+              <input className="input" placeholder="Company / workspace name" aria-label="Company or workspace name" autoComplete="organization" value={form.orgName} onChange={(e) => set("orgName", e.target.value)} required />
+              <input className="input" placeholder="Your name" aria-label="Your name" autoComplete="name" value={form.name} onChange={(e) => set("name", e.target.value)} required />
             </>
           )}
-          <input className="input" type="email" placeholder="Email" value={form.email} onChange={(e) => set("email", e.target.value)} required />
-          <input className="input" type="password" placeholder="Password (min 8 chars)" minLength={8} value={form.password} onChange={(e) => set("password", e.target.value)} required />
+          <input className="input" type="email" placeholder="Email" aria-label="Email" autoComplete="email" autoFocus value={form.email} onChange={(e) => set("email", e.target.value)} required />
+          <input className="input" type="password" placeholder="Password (min 8 chars)" aria-label="Password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} value={form.password} onChange={(e) => set("password", e.target.value)} required />
 
           {error && <div className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>}
 

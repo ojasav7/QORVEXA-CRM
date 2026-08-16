@@ -134,7 +134,7 @@ export default function WorkflowsPage() {
           {automations.map((a) => (
             <div key={a.id} className={`card p-5 transition-colors ${a.active ? "" : "opacity-60"}`}>
               <div className="flex items-start justify-between gap-2">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-violet-500/15 text-violet-400"><GitMerge className="size-4" /></div>
+                <div className="flex size-9 items-center justify-center rounded-xl bg-teal-500/15 text-teal-400"><GitMerge className="size-4" /></div>
                 <button
                   onClick={() => void toggle(a)}
                   title={a.active ? "Active — click to pause" : "Paused — click to activate"}

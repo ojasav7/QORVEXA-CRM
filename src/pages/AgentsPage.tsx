@@ -149,8 +149,8 @@ export default function AgentsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Bot className="size-4 text-violet-400" /> AI Agents
-            <span className="chip bg-violet-500/15 text-violet-300">autonomous · governed</span>
+            <Bot className="size-4 text-teal-400" /> AI Agents
+            <span className="chip bg-teal-500/15 text-teal-300">autonomous · governed</span>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Pre-built agents do real work on your records — every action is risk-tiered (🟢 auto / 🟡 approval / 🔴 human), metered, and audited. The kill switch stops everything instantly.
@@ -276,7 +276,7 @@ function AgentsTab({ agents, templates, toolTiers, isAdmin, onChanged, onFlash, 
             {templates.map((t) => (
               <button key={t.kind} onClick={() => setCreating(true)} className="card p-4 text-left transition-colors hover:border-accent-500/40">
                 <div className="flex items-center gap-2">
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-violet-500/15 text-sm">{KIND_LABEL[t.kind]?.slice(0, 1)}</span>
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-teal-500/15 text-sm">{KIND_LABEL[t.kind]?.slice(0, 1)}</span>
                   <span className="text-sm font-semibold text-white">{t.name}</span>
                 </div>
                 <p className="mt-2 line-clamp-3 text-xs text-slate-500">{t.description}</p>
@@ -300,7 +300,7 @@ function AgentsTab({ agents, templates, toolTiers, isAdmin, onChanged, onFlash, 
           <div key={a.id} className="card p-4">
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => void onOpenDetail(a.id)} className="flex items-center gap-2 text-left">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/20 to-accent-500/20 text-sm">{a.kind === "custom" ? "🤖" : a.kind === "lead" ? "🎯" : a.kind === "sales" ? "💰" : a.kind === "service" ? "🎧" : "🔄"}</span>
+                <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500/20 to-accent-500/20 text-sm">{a.kind === "custom" ? "🤖" : a.kind === "lead" ? "🎯" : a.kind === "sales" ? "💰" : a.kind === "service" ? "🎧" : "🔄"}</span>
                 <div>
                   <div className="text-sm font-semibold text-white hover:text-accent-300">{a.name}</div>
                   <div className="text-[11px] text-slate-500">{KIND_LABEL[a.kind] ?? a.kind} · trigger {a.trigger.kind === "event" ? a.trigger.event : "manual"} · {a.runCount} runs · {money(a.costTotal)}</div>
@@ -395,7 +395,7 @@ function CreateAgentModal({ templates, toolTiers, onClose, onCreated }: {
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-white/[0.08] bg-ink-850 shadow-2xl shadow-black/60">
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Bot className="size-4 text-violet-400" /> Create agent</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Bot className="size-4 text-teal-400" /> Create agent</h3>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-500 hover:bg-white/10 hover:text-white"><X className="size-4" /></button>
         </div>
         <div className="max-h-[70vh] space-y-4 overflow-y-auto p-5">
@@ -595,7 +595,7 @@ function LabTab({ agents, onRun }: { agents: Agent[]; isAdmin: boolean; onRun: (
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div className="card p-5">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><FlaskConical className="size-4 text-accent-400" /> Simulation lab</h3>
         <p className="mt-1 text-xs text-slate-500">Dry-run a scenario with NO execution. <span className="text-emerald-400">passed</span> = go-live safe · <span className="text-rose-400">blocked</span> = a 🔴 human action was proposed.</p>
@@ -700,12 +700,12 @@ function AnalyticsTab() {
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total runs" value={data?.totals.runs ?? "—"} tone="blue" />
-        <StatCard label="Total actions" value={data?.totals.actions ?? "—"} tone="violet" />
+        <StatCard label="Total actions" value={data?.totals.actions ?? "—"} tone="teal" />
         <StatCard label="Waiting on humans" value={data?.totals.waitingApproval ?? "—"} tone="amber" />
         <StatCard label="Simulated spend" value={meter ? money(meter.total) : "—"} sub={meter ? `model ${meter.model}` : undefined} tone="green" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><BarChart3 className="size-4 text-accent-400" /> Per-agent performance</h3>
           <div className="mt-3 space-y-2">
@@ -755,7 +755,7 @@ function AnalyticsTab() {
                   <span className="tabular-nums text-slate-400">{money(e._sum?.cost ?? 0)}</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-violet-400/70" style={{ width: `${((e._sum?.cost ?? 0) / maxEntityCost) * 100}%` }} />
+                  <div className="h-full rounded-full bg-teal-400/70" style={{ width: `${((e._sum?.cost ?? 0) / maxEntityCost) * 100}%` }} />
                 </div>
               </div>
             ))}
@@ -807,7 +807,7 @@ function AgentDetail({ detail, onClose, onChanged, onFlash, onRun }: {
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative flex h-full w-full max-w-lg flex-col border-l border-white/[0.08] bg-ink-850 shadow-2xl">
         <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-4">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-accent-500/20 text-lg">{agent.kind === "custom" ? "🤖" : agent.kind === "lead" ? "🎯" : agent.kind === "sales" ? "💰" : agent.kind === "service" ? "🎧" : "🔄"}</span>
+          <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500/20 to-accent-500/20 text-lg">{agent.kind === "custom" ? "🤖" : agent.kind === "lead" ? "🎯" : agent.kind === "sales" ? "💰" : agent.kind === "service" ? "🎧" : "🔄"}</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-white">{agent.name}</div>
             <div className="text-[11px] text-slate-500">{KIND_LABEL[agent.kind]} · trigger {agent.trigger.kind === "event" ? agent.trigger.event : "manual"} · {agent.runCount} runs · {money(agent.costTotal)} spent</div>

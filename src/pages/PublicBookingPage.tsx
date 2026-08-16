@@ -123,7 +123,7 @@ export default function PublicBookingPage() {
     <div className="flex min-h-full items-center justify-center p-4">
       <div className="card w-full max-w-lg animate-fade-up p-8">
         <div className="mb-6 flex items-center gap-4">
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-violet-500 text-xl font-bold text-on-brand shadow-xl shadow-accent-500/30">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-teal-500 text-xl font-bold text-on-brand shadow-xl shadow-accent-500/30">
             <CalendarDays className="size-6" />
           </div>
           <div>

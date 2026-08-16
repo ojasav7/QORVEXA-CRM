@@ -92,7 +92,7 @@ export const PRIORITY_TONES: Record<string, string> = {
 
 export const STATUS_TONES: Record<string, string> = {
   new: "blue",
-  open: "violet",
+  open: "teal",
   pending: "amber",
   resolved: "green",
   closed: "default",
@@ -110,7 +110,7 @@ export type PipelineStage = { key: string; label: string; probability: number; o
 export type Pipeline = { id: string; name: string; isDefault: boolean; stages: PipelineStage[]; dealCount?: number };
 
 export const STAGE_TONES: Record<string, string> = {
-  discovery: "violet",
+  discovery: "teal",
   qualified: "blue",
   proposal: "amber",
   negotiation: "gold",
@@ -120,7 +120,7 @@ export const STAGE_TONES: Record<string, string> = {
 
 // Gradient classes per column for the deals board (cycled by stage index).
 export const STAGE_COLORS: [string, string][] = [
-  ["from-violet-500/80 to-violet-500/20", "text-violet-300"],
+  ["from-teal-500/80 to-teal-500/20", "text-teal-300"],
   ["from-accent-500/80 to-accent-500/20", "text-accent-300"],
   ["from-amber-500/80 to-amber-500/20", "text-amber-300"],
   ["from-yellow-500/80 to-yellow-500/20", "text-yellow-300"],
