@@ -6,18 +6,9 @@ set -u
 BASE=http://localhost:8787
 COOKIE=/tmp/q2c-admin.txt
 REPCOOKIE=/tmp/q2c-rep.txt
-PASS=0; FAIL=0
-say() { printf '%-72s' "$1"; }
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
-jget() { python -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+source "$(dirname "$0")/lib/test-helpers.sh"
+login "/tmp/q2c-admin.txt"
 
-rm -f "$COOKIE" "$REPCOOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login failed"
 
@@ -154,9 +145,7 @@ curl -s -b "$COOKIE" -X DELETE "$BASE/api/email-templates/$TPL_ID" | grep -q '"o
 curl -s -b "$COOKIE" -X DELETE "$BASE/api/emails/$REPLY_ID" > /dev/null
 curl -s -b "$COOKIE" -X DELETE "$BASE/api/emails/$MSG_ID" | grep -q '"ok":true' && ok "smoke messages cleaned up" || bad "smoke message cleanup failed"
 
-echo
-echo "════════════════════════════════════════════"
-echo "  PASS: $PASS   FAIL: $FAIL"
-echo "════════════════════════════════════════════"
 [ "$FAIL" = "0" ] && echo "PHASE 2 COMM SMOKE SUITE: ALL GREEN ✅" || echo "PHASE 2 COMM SMOKE SUITE: FAILURES ⚠️"
 exit $FAIL
+
+summary "PHASE 2 COMM"

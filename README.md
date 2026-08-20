@@ -23,6 +23,20 @@ QORVEXA is designed as a modular business platform built around a shared object-
 - Authentication: session-based auth + OAuth-ready flows
 - Deployment: Docker Compose and cloud-ready service configuration
 
+## One URL, one stack
+
+The public **landing page** (`qorvexacrm/` — a static Vite app) and the **CRM app**
+(the React SPA) ship as a single Express server and a single Docker image:
+
+- `https://your-domain/` → the marketing landing page
+- `https://your-domain/app` → the CRM app (log in with the seeded demo user)
+- `https://your-domain/api/*` → the REST API
+
+The landing page's **Request a demo** form POSTs to the CRM's public lead-capture
+endpoint, so every submission becomes a real lead (round-robin routed, source
+"Website"). See [qorvexacrm/README.md](qorvexacrm/README.md) for the landing
+page's build and content details.
+
 ## Architecture at a glance
 
 ```text
@@ -46,13 +60,16 @@ Business logic modules
 
 ```text
 .
-├── src/                  # React frontend
+├── src/                  # React frontend (the CRM app — served at /app)
 ├── server/               # REST API and business logic
+├── qorvexacrm/           # Static landing page (served at /)
 ├── prisma/               # Prisma schema and generated client
 ├── docs/                 # Specs, setup docs, build reports
 ├── scripts/              # Build and utility scripts
 ├── backups/              # Generated snapshot archives
 ├── public/               # Static assets
+├── dist/                 # Built CRM app (gitignored)
+├── landing/              # Built landing page (gitignored)
 ├── Dockerfile            # Container image
 ├── docker-compose.prod.yml
 ├── package.json          # Scripts and dependencies
@@ -68,10 +85,25 @@ Business logic modules
 
 - Node.js 20+
 - npm
-- Docker Desktop (recommended for local MongoDB)
-- MongoDB with replica set support
+- Docker Desktop (for local MongoDB)
 
-### Local development
+### One-command setup
+
+```bash
+git clone https://github.com/your-username/qorvexa-crm.git
+cd qorvexa-crm
+bash setup.sh
+```
+
+This handles everything: installs deps, starts MongoDB, generates Prisma client, pushes schema, and seeds demo data.
+
+### Login credentials
+
+- **URL:** http://localhost:8787/app
+- **Email:** admin@qorvexa.dev
+- **Password:** password123
+
+### Manual setup (if you prefer)
 
 ```bash
 npm install
@@ -79,14 +111,24 @@ npm run mongo:up
 cp .env.example .env
 npm run db:generate
 npm run db:push
-npm run seed        # optional demo data
+npm run seed
 npm run dev
 ```
 
-The app starts with:
+### What starts
 
-- API: http://localhost:8787
-- Frontend: http://localhost:5173
+- **API + CRM app:** http://localhost:8787/app
+- **Landing page:** http://localhost:8787 (when built)
+
+### Docker (production)
+
+```bash
+cp .env.example .env
+# Edit .env: set SESSION_SECRET to a random string
+openssl rand -hex 32  # generates one
+docker compose -f docker-compose.prod.yml up -d --build
+curl http://localhost:8787/api/health
+```
 
 ## Environment variables
 
@@ -147,6 +189,11 @@ Use the repo docs for the exact recommended deployment flow and environment chec
 npm run build
 npm run typecheck
 ```
+
+`npm run build` typechecks the CRM, builds the CRM SPA into `dist/`, then builds
+the landing page into `landing/` — both are served by Express in production.
+
+For the landing page alone: `cd qorvexacrm && npm install && npm run dev`.
 
 The repository also includes verification scripts for phase-by-phase regression validation and deployment health checks.
 

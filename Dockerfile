@@ -17,7 +17,14 @@ RUN npm ci
 COPY prisma ./prisma
 RUN npx prisma generate
 
-# Copy the rest of the source and build the client (typecheck + vite → dist/).
+# The landing page (qorvexacrm/) is a second Vite app — install its deps so the
+# root build script can compile it into landing/ next to the CRM's dist/.
+COPY qorvexacrm/package.json qorvexacrm/package-lock.json ./qorvexacrm/
+RUN cd qorvexacrm && npm ci
+
+# Copy the rest of the source and build both apps (typecheck + vite → dist/,
+# landing page → landing/). The root build script runs `npm run build` inside
+# qorvexacrm, so it must be present before the build step.
 COPY . .
 RUN npm run build
 
@@ -35,6 +42,7 @@ RUN mkdir -p /app/backups /app/portability && chown -R node:node /app
 # tasks) — carry the full dependency tree over from the builder.
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/landing ./landing
 COPY --from=builder --chown=node:node /app/server ./server
 COPY --from=builder --chown=node:node /app/prisma ./prisma
 COPY --from=builder --chown=node:node /app/package.json /app/package-lock.json ./

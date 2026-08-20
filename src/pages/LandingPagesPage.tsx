@@ -83,7 +83,7 @@ export default function LandingPagesPage() {
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">Landing pages</h1>
-          <p className="text-sm text-slate-500">Publish no-auth pages at <code className="rounded bg-white/10 px-1">/l/:slug</code> that capture routed leads — optionally attributed to a campaign.</p>
+          <p className="text-sm text-slate-500">Publish no-auth pages at <code className="rounded bg-white/10 px-1">/app/l/:slug</code> that capture routed leads — optionally attributed to a campaign.</p>
         </div>
         {user?.role === "admin" && (
           <button className="btn-primary ml-auto" onClick={() => setCreating(true)}><Plus className="size-4" /> New page</button>
@@ -124,7 +124,7 @@ export default function LandingPagesPage() {
                   </button>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <Badge tone="blue">/l/{p.slug}</Badge>
+                  <Badge tone="blue">/app/l/{p.slug}</Badge>
                   {p.campaignId && <Badge tone="teal"><Palette className="size-3" /> attributed</Badge>}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -135,7 +135,7 @@ export default function LandingPagesPage() {
                 <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-3">
                   <span className="text-[11px] text-slate-600">{timeAgo(p.createdAt)}</span>
                   <div className="flex gap-1">
-                    <a href={`/l/${p.slug}`} target="_blank" rel="noreferrer" title="Open public page" className="rounded-lg p-1.5 text-accent-400 hover:bg-accent-500/15"><ExternalLink className="size-3.5" /></a>
+                    <a href={`/app/l/${p.slug}`} target="_blank" rel="noreferrer" title="Open public page" className="rounded-lg p-1.5 text-accent-400 hover:bg-accent-500/15"><ExternalLink className="size-3.5" /></a>
                     {user?.role === "admin" && (
                       <>
                         <button onClick={() => setEditing(p)} className="rounded-lg p-1.5 text-slate-500 hover:bg-white/10 hover:text-white"><Pencil className="size-3.5" /></button>

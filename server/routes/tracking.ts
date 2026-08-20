@@ -4,10 +4,12 @@
 // in the response — only a 1×1 gif / a 302 redirect.
 //   GET /api/t/px/<token>      → 1×1 transparent gif, marks opened
 //   GET /api/t/click/<token>?u=… → 302 to u, marks clicked
+// The open/click application lives in lib/integrations/email.ts so the Phase
+// 16 provider webhooks (Resend/SendGrid events) share the exact same logic.
 import { Router } from "express";
 import { db } from "../db";
 import { asyncHandler, ok } from "../lib/http";
-import { emitEvent } from "../lib/events";
+import { markMessageOpened, markMessageClicked } from "../lib/integrations/email";
 
 const router = Router();
 
@@ -26,23 +28,7 @@ router.get(
         const token = String((_req.params as any).token);
         const message = await db().message.findFirst({ where: { trackingToken: token } });
         if (!message) return;
-        const wasOpened = !!message.openedAt;
-        await db().message.update({
-          where: { id: message.id },
-          data: { openedAt: message.openedAt ?? new Date(), openedCount: { increment: 1 }, status: message.status === "replied" ? "replied" : "opened", updatedAt: new Date() },
-        });
-        if (!wasOpened) {
-          await rollupCampaignRecipient(message, "opened");
-          await emitEvent({
-            orgId: message.orgId,
-            environment: message.environment,
-            type: "email.opened",
-            entity: "message",
-            entityId: message.id,
-            actorId: message.ownerId,
-            payload: { to: message.toEmail, subject: message.subject, contactId: message.contactId ?? null, campaignId: message.campaignId ?? null },
-          });
-        }
+        await markMessageOpened(message);
       } catch (e) {
         console.error("[tracking px]", e);
       }
@@ -72,23 +58,7 @@ router.get(
       try {
         const message = await db().message.findFirst({ where: { trackingToken: token } });
         if (!message) return;
-        const wasClicked = !!message.clickedAt;
-        await db().message.update({
-          where: { id: message.id },
-          data: { clickedAt: message.clickedAt ?? new Date(), status: message.status === "replied" ? "replied" : "clicked", updatedAt: new Date() },
-        });
-        if (!wasClicked) {
-          await rollupCampaignRecipient(message, "clicked");
-          await emitEvent({
-            orgId: message.orgId,
-            environment: message.environment,
-            type: "email.clicked",
-            entity: "message",
-            entityId: message.id,
-            actorId: message.ownerId,
-            payload: { to: message.toEmail, subject: message.subject, url: url.toString(), contactId: message.contactId ?? null, campaignId: message.campaignId ?? null },
-          });
-        }
+        await markMessageClicked(message, url.toString());
       } catch (e) {
         console.error("[tracking click]", e);
       }
@@ -96,25 +66,5 @@ router.get(
     res.redirect(302, url.toString());
   })
 );
-
-/**
- * Roll a tracking event up into the campaign's recipient + count rows (Phase
- * 5). Fire-and-forget — tracking must never block the pixel/redirect. Only
- * the FIRST open/click counts (wasOpened/wasClicked guards in the callers).
- */
-async function rollupCampaignRecipient(message: any, kind: "opened" | "clicked") {
-  try {
-    if (!message.campaignId) return;
-    const now = new Date();
-    await db().campaignRecipient.updateMany({
-      where: { messageId: message.id, campaignId: message.campaignId },
-      data: kind === "opened" ? { status: "opened", openedAt: now } : { status: "clicked", clickedAt: now },
-    });
-    const field = kind === "opened" ? "openedCount" : "clickedCount";
-    await db().campaign.update({ where: { id: message.campaignId }, data: { [field]: { increment: 1 }, updatedAt: now } });
-  } catch (e) {
-    console.error("[tracking campaign rollup]", e);
-  }
-}
 
 export default router;

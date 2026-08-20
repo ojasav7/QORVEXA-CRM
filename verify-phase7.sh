@@ -12,17 +12,10 @@ set -u
 BASE=http://localhost:8787
 COOKIE=/tmp/q7-admin.txt
 REPCOOKIE=/tmp/q7-rep.txt
-PASS=0; FAIL=0
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
-jget() { python -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+source "$(dirname "$0")/lib/test-helpers.sh"
+login "/tmp/q7-admin.txt"
+login_rep "/tmp/q7-rep.txt"
 
-rm -f "$COOKIE" "$REPCOOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login failed"
 
@@ -182,8 +175,5 @@ for bid in $BEHAVIOR_IDS; do
   [ -n "$bid" ] && curl -s -o /dev/null -b "$COOKIE" -X DELETE "$BASE/api/cdp/behaviors/$bid" $ENV
 done
 ok "suite behaviors purged (cleanup)"
-echo
-echo "════════════════════════════════════════════"
-echo "  PASS: $PASS   FAIL: $FAIL"
-echo "════════════════════════════════════════════"
-if [ "$FAIL" = "0" ]; then echo "PHASE 7 SMOKE SUITE: ALL GREEN ✅"; else echo "PHASE 7 SMOKE SUITE: FAILURES ❌"; fi
+
+summary "PHASE 7"

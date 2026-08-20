@@ -16,6 +16,8 @@ dist/
 build/
 .next/
 out/
+# Landing page build (qorvexacrm → landing/, served at the site root)
+landing/
 
 # Backup snapshots (ADR-009 archives — recreated on demand)
 backups/

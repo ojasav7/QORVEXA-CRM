@@ -6,7 +6,8 @@ import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
+    {/* The CRM app mounts at /app — the landing page owns the site root. */}
+    <BrowserRouter basename="/app">
       <App />
     </BrowserRouter>
   </StrictMode>

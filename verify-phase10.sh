@@ -13,17 +13,10 @@ set -u
 BASE=http://localhost:8787
 COOKIE=/tmp/q10-admin.txt
 REPCOOKIE=/tmp/q10-rep.txt
-PASS=0; FAIL=0
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
-jget() { python -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+source "$(dirname "$0")/lib/test-helpers.sh"
 
-rm -f "$COOKIE" "$REPCOOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
+login "$COOKIE"
+login_rep "$REPCOOKIE"
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login failed"
 
@@ -304,7 +297,4 @@ PROD2=$(curl -s -b "$COOKIE" "$BASE/api/products" $ENV)
 echo "$PROD2" | grep -q "Sandbox Widget" && bad "sandbox product leaked into production" || ok "sandbox product invisible in production"
 
 echo
-echo "──────────────────────────────────────────────"
-echo "Phase 10 · Revenue Cloud: $PASS passed, $FAIL failed"
-[ "$FAIL" = "0" ] && echo "✅ ALL GREEN" || echo "❌ $FAIL FAILURE(S)"
-exit "$FAIL"
+summary "PHASE 10 REVENUE CLOUD"

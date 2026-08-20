@@ -36,7 +36,7 @@ export default function PortalsPage() {
   useEffect(() => { void load(); }, [load]);
 
   const remove = async (p: Portal) => {
-    if (!confirm(`Delete portal "${p.name}"? The public page /p/${p.slug} will stop working.`)) return;
+    if (!confirm(`Delete portal "${p.name}"? The public page /app/p/${p.slug} will stop working.`)) return;
     try {
       await del(`/api/portals/${p.id}`);
       await load();
@@ -65,7 +65,7 @@ export default function PortalsPage() {
           {[...Array(3)].map((_, i) => <div key={i} className="skeleton h-36" />)}
         </div>
       ) : portals.length === 0 ? (
-        <EmptyState icon={<Globe className="size-8" />} title="No portals yet" hint="Create one to publish a customer support page — e.g. /p/support." />
+        <EmptyState icon={<Globe className="size-8" />} title="No portals yet" hint="Create one to publish a customer support page — e.g. /app/p/support." />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {portals.map((p) => (
@@ -77,11 +77,11 @@ export default function PortalsPage() {
               <h3 className="mt-3 text-sm font-semibold text-white">{p.name}</h3>
               <p className="mt-1 line-clamp-2 min-h-8 text-xs text-slate-500">{p.description || "No description"}</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <Badge tone="blue">/p/{p.slug}</Badge>
+                <Badge tone="blue">/app/p/{p.slug}</Badge>
                 {p.autoCreateContact ? <Badge tone="teal">auto-contact</Badge> : <Badge tone="default">no auto-contact</Badge>}
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-3">
-                <a href={`/p/${p.slug}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-accent-400 hover:underline">
+                <a href={`/app/p/${p.slug}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-accent-400 hover:underline">
                   <ExternalLink className="size-3" /> Open portal
                 </a>
                 {isAdmin && (

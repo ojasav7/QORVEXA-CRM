@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "../db";
 import { badRequest, asyncHandler, ok } from "../lib/http";
-import { createMfaToken, createSessionCookie, loadSession, SESSION_COOKIE, type SessionUser, verifyMfaToken } from "../lib/auth";
+import { createMfaToken, createSessionCookie, loadSession, SESSION_COOKIE, sessionCookieOpts, type SessionUser, verifyMfaToken } from "../lib/auth";
 import { issueSession, consumeRecoveryCode, verifyTotp, createSecurityAlert } from "../lib/security";
 import { emitEvent } from "../lib/events";
 import { env } from "../env";
@@ -33,7 +33,7 @@ router.post(
       data: { orgId: org.id, email, name, passwordHash, role: "admin" },
     });
     const session: SessionUser = { id: user.id, orgId: org.id, email, name, role: user.role };
-    res.cookie(SESSION_COOKIE, await issueSession(session, req), cookieOpts());
+    res.cookie(SESSION_COOKIE, await issueSession(session, req), sessionCookieOpts(req));
     await emitEvent({ orgId: org.id, type: "org.created", entity: "organization", entityId: org.id, actorId: user.id });
     ok(res, { user: publicUser(user) });
   })
@@ -103,7 +103,7 @@ async function completeLogin(req: Request, res: Response, userId: string) {
   const user = await db().user.findUnique({ where: { id: userId } });
   if (!user) throw badRequest("Account not found");
   const session: SessionUser = { id: user.id, orgId: user.orgId, email: user.email, name: user.name, role: user.role };
-  res.cookie(SESSION_COOKIE, await issueSession(session, req), cookieOpts());
+  res.cookie(SESSION_COOKIE, await issueSession(session, req), sessionCookieOpts(req));
   await emitEvent({ orgId: user.orgId, type: "user.logged_in", entity: "user", entityId: user.id, actorId: user.id });
   ok(res, { user: publicUser(user) });
 }
@@ -126,7 +126,7 @@ router.post(
         /* best effort */
       }
     }
-    res.clearCookie(SESSION_COOKIE);
+    res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: "lax" as const, secure: !!sessionCookieOpts(req)["secure"], path: "/" });
     ok(res, { ok: true });
   })
 );
@@ -152,16 +152,6 @@ router.get(
 
 function publicUser(u: { id: string; orgId: string; email: string; name: string; role: string; title?: string | null }) {
   return { id: u.id, orgId: u.orgId, email: u.email, name: u.name, role: u.role, title: u.title ?? null };
-}
-
-function cookieOpts() {
-  return {
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production", // https-only in prod
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-    path: "/",
-  };
 }
 
 export default router;

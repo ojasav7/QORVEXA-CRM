@@ -6,11 +6,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "../db";
+import { env } from "../env";
 import { assertActiveUser } from "../lib/auth";
-import { asyncHandler, badRequest, notFound, ok } from "../lib/http";
+import { asyncHandler, badRequest, forbidden, notFound, ok } from "../lib/http";
 import { resolveEnvironment } from "../lib/environment";
 import { emitEvent } from "../lib/events";
 import { mockRecordingUrl, mockTranscript } from "../lib/comm";
+import { placeTwilioCall, TelephonyError } from "../lib/integrations/telephony";
 
 const router = Router();
 
@@ -118,6 +120,46 @@ router.patch(
       },
     });
     ok(res, { call: updated });
+  })
+);
+
+// POST /api/calls/:id/place — initiate a REAL outbound call via the configured
+// telephony provider (Twilio, Phase 16 · ADR-028). Mock mode → 400 with an
+// actionable message (never a silent fake). Twilio then dials the number,
+// plays the TwiML at /api/integrations/twilio/twiml/:id, and posts status /
+// recording callbacks back to the integration webhooks, which flip the row
+// to completed/no-answer + attach recording/transcript + emit call.completed.
+router.post(
+  "/:id/place",
+  asyncHandler(async (req, res) => {
+    const user = await assertActiveUser(req);
+    if (!["admin", "manager"].includes(user.role)) throw forbidden("Only admins and managers can place outbound calls");
+    const environment = await resolveEnvironment(req, user.orgId);
+    const call = await db().call.findFirst({ where: { id: String(req.params.id), orgId: user.orgId, environment } });
+    if (!call) throw notFound("Call not found");
+    const base = env.publicBaseUrl.replace(/\/$/, "");
+    try {
+      const { callSid } = await placeTwilioCall({
+        to: call.phone,
+        twimlUrl: `${base}/api/integrations/twilio/twiml/${call.id}`,
+        statusCallbackUrl: `${base}/api/integrations/twilio/status/${call.id}`,
+        recordingCallbackUrl: `${base}/api/integrations/twilio/recording/${call.id}`,
+      });
+      const updated = await db().call.update({ where: { id: call.id }, data: { status: "ringing", updatedAt: new Date() } });
+      await emitEvent({
+        orgId: user.orgId,
+        environment,
+        type: "call.initiated",
+        entity: "call",
+        entityId: call.id,
+        actorId: user.id,
+        payload: { phone: call.phone, callSid, provider: "twilio" },
+      });
+      ok(res, { call: updated, callSid, provider: "twilio" }, 201);
+    } catch (e) {
+      if (e instanceof TelephonyError && e.code === "not-configured") throw badRequest(e.message);
+      throw e;
+    }
   })
 );
 

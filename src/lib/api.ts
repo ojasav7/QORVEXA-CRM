@@ -25,16 +25,29 @@ export class ApiError extends Error {
   }
 }
 
+/** Retry fetch on network errors (not 4xx/5xx). Retries up to 2 times with 1s delay. */
+async function fetchWithRetry(path: string, options: RequestInit, retries = 2): Promise<Response> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(path, {
+        ...options,
+        headers: {
+          "content-type": "application/json",
+          ...getEnvHeader(),
+          ...(options.headers ?? {}),
+        },
+        credentials: "same-origin",
+      });
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 export async function api<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      ...getEnvHeader(),
-      ...(options.headers ?? {}),
-    },
-    credentials: "same-origin",
-  });
+  const res = await fetchWithRetry(path, options);
   if (!res.ok) {
     let data: { error?: string; issues?: string[] } = {};
     try {

@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "QORVEXA — the intelligent operating system for business. Phase 0 (platform backbone) + Phase 1 (core CRM).",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",
@@ -17,7 +20,12 @@
     "backfill:pipeline": "tsx server/scripts/backfill-pipeline.ts",
     "seed": "tsx server/seed.ts",
     "mongo:up": "docker compose up -d mongo",
-    "mongo:down": "docker compose down"
+    "mongo:down": "docker compose down",
+    "postinstall": "cd qorvexacrm && npm install --ignore-scripts",
+    "setup": "npm install && npm run db:generate && npm run db:push && npm run seed",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@prisma/client": "6",
@@ -42,11 +50,13 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "agentation": "^3.0.2",
     "concurrently": "^9.1.2",
     "prisma": "6",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "vite": "^8.0.14"
+    "vite": "^8.0.14",
+    "vitest": "^4.1.11"
   }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState, createContext, useContext, useCallback, type ReactNode } from "react";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Agentation } from "agentation";
 import { get, post, ENV_STORAGE_KEY, type User, type Org } from "./lib/api";
@@ -132,6 +133,7 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <SessionCtx.Provider value={session}>
       <ToastProvider>
         {process.env.NODE_ENV === "development" && <Agentation />}
@@ -184,6 +186,7 @@ export default function App() {
         </Routes>
       </ToastProvider>
     </SessionCtx.Provider>
+    </ErrorBoundary>
   );
 }
 
@@ -208,7 +211,13 @@ function ToastProvider({ children }: { children: ReactNode }) {
 function RequireAuth({ children }: { children: ReactNode }) {
   const session = useSession();
   const location = useLocation();
-  if (!session.user) return <Navigate to={{ pathname: "/login", search: location.search }} state={{ from: location }} replace />;
+  const isRootEntry = ["/", "/app", "/app/"].includes(location.pathname);
+
+  if (!session.user) {
+    if (isRootEntry) return <Login />;
+    return <Navigate to={{ pathname: "/login", search: location.search }} state={{ from: location }} replace />;
+  }
+
   return <>{children}</>;
 }
 

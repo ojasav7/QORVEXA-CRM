@@ -25,6 +25,7 @@ import { emitEvent, onEvent } from "./events";
 import { firewallPolicy, redactContext } from "./ai";
 import { createObjectService } from "./object-service";
 import { trackingToken } from "./comm";
+import { sendOutboundWithProvider } from "./integrations/email";
 import type { PersistedEvent } from "./events";
 
 // ── Risk tiers (blueprint §3.4) ─────────────────────────────────────────────
@@ -407,6 +408,8 @@ async function executeTool(agent: any, action: ProposedAction, tier: string, ent
             ownerId: agent.createdBy,
           },
         });
+        // Phase 16 (ADR-028): fire the real provider send after the row exists.
+        void sendOutboundWithProvider(message);
         await emitEvent({ orgId, environment: env, type: "email.sent", entity: "message", entityId: message.id, actorId: agent.createdBy, payload: { to: message.toEmail, subject: message.subject, trackingToken: token, contactId: contact.id } });
         return { status: "ok", result: { entityId: message.id, to: message.toEmail } };
       }

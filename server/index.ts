@@ -103,9 +103,15 @@ import { startOrchestrationEngine } from "./lib/orchestrate";
 import { startTimeMachineEngine } from "./lib/timemachine";
 import { startSimulatorEngine } from "./lib/simulate";
 import brainRoutes from "./routes/brain";
+// Phase 16 · Real-world provider integrations (email/telephony/AI webhooks + status)
+import integrationRoutes from "./routes/integrations";
 import { requireFeature } from "./lib/features";
 import { objectRouter } from "./routes/object-routes";
 import { createObjectService } from "./lib/object-service";
+// Rate limiting (Phase 16 hardening)
+import { apiRateLimit, authRateLimit } from "./lib/rate-limit";
+// Structured logging
+import { logger } from "./lib/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -133,15 +139,21 @@ registerObject({ type: "ticket", eventPrefix: "ticket", relations: [{ field: "co
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "2mb" }));
+// Trust one proxy hop (Render/nginx terminate TLS and forward X-Forwarded-Proto)
+// so session cookies set `Secure` correctly on HTTPS and not on plain HTTP.
+app.set("trust proxy", 1);
+// rawBody is captured for every request so the Phase 16 provider webhooks can
+// verify signatures against the exact bytes the provider signed.
+app.use(express.json({ limit: "2mb", verify: (req, _res, buf) => { (req as any).rawBody = buf.toString("utf8"); } }));
 app.use(cookieParser());
 app.use(loadSession);
 app.use(loadTokenAuth); // Bearer API tokens (Phase 0 OAuth for integrations)
 app.use(enforceSecurityPolicy); // Phase 14 — org IP allowlist enforcement + threat alerts
+app.use("/api", apiRateLimit); // General API rate limit (200 req/min/IP)
 
 // ── API routes ────────────────────────────────────────────────────────────────
 app.use("/api/health", healthRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRateLimit, authRoutes); // Tighter limit on auth endpoints
 app.use("/api/users", userRoutes);
 app.use("/api/org", orgRoutes);
 app.use("/api/events", eventRoutes);
@@ -213,6 +225,10 @@ app.use("/api/ecosystem", ecosystemRoutes); // per-route gates (marketplace/part
 app.use("/api/security", securityRoutes);
 // Phase 15 · Differentiators (per-route gates: diff.brain/graph/memory/orchestration/timemachine/simulator/builder/command/ubq)
 app.use("/api/brain", brainRoutes);
+// Phase 16 · Real-world provider integrations — admin status + PUBLIC provider
+// webhooks (email events, Twilio status/recording/TwiML). Webhooks are
+// unauthenticated by design (providers can't log in); see routes/integrations.ts.
+app.use("/api/integrations", integrationRoutes);
 // SCIM 2.0 provisioning — bearer ApiToken with the `scim` scope (RFC 7644).
 app.use("/api/scim/v2", scimRoutes);
 // Public (no auth) — tracking pixels/click links + public booking pages.
@@ -234,11 +250,38 @@ app.use("/api/tasks", objectRouter(createObjectService({ type: "task" })));
 app.use("/api/notes", objectRouter(createObjectService({ type: "note" })));
 
 // ── Static client (production) ────────────────────────────────────────────────
+// One URL, one stack: the LANDING PAGE (built from qorvexacrm/ → landing/)
+// owns the site root; the CRM SPA (vite base "/app/" → dist/) mounts at /app;
+// /api/* stays the API. See docs/54-spec-phase16.md + qorvexacrm/README.md.
 const clientDist = path.resolve(__dirname, "../dist");
+const landingDist = path.resolve(__dirname, "../landing");
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  app.get(/^(?!\/api\/).*/, (_req, res) => {
+  // CRM app at /app — static assets + SPA fallback scoped to /app/*.
+  // (Express 5 / path-to-regexp v8: `*` must be a named wildcard — `*splat`.)
+  app.use("/app", express.static(clientDist));
+  app.get("/app/*splat", (_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
+  });
+  // PUBLIC SPA pages live under /app (the SPA's basename): /app/forms/:slug,
+  // /app/b/:slug, /app/p/:slug, /app/l/:slug. Old root-level links and embedded
+  // iframes (/forms/x, /b/x, /p/x, /l/x) redirect to their /app equivalent so
+  // they keep working.
+  app.get(["/forms/*splat", "/b/*splat", "/p/*splat", "/l/*splat"], (req, res) => {
+    res.redirect(301, `/app${req.originalUrl}`);
+  });
+  // Landing page at the site root (when built) — a single static page.
+  if (fs.existsSync(landingDist)) {
+    app.use("/", express.static(landingDist));
+  }
+  // Any other non-API path → the landing page (marketing fallback), or 404
+  // when the landing build isn't present.
+  app.get("/*splat", (req, res) => {
+    // Unmatched API/app paths get a clean 404, never the landing page.
+    if (req.path.startsWith("/api/") || req.path.startsWith("/app")) {
+      return res.status(404).send("Not found");
+    }
+    if (fs.existsSync(landingDist)) return res.sendFile(path.join(landingDist, "index.html"));
+    res.status(404).send("Not found");
   });
 }
 
@@ -273,10 +316,10 @@ startTimeMachineEngine();
 startSimulatorEngine();
 
 const server = app.listen(env.port, () => {
-  console.log(`\n  QORVEXA CRM  ·  http://localhost:${env.port}`);
-  console.log(`  API          ·  http://localhost:${env.port}/api`);
+  logger.info("QORVEXA CRM started", { port: env.port, url: `http://localhost:${env.port}` });
+  logger.info("API available", { url: `http://localhost:${env.port}/api` });
   void dbHealthy().then((ok) =>
-    console.log(`  Database     ·  ${ok ? "connected" : "NOT CONNECTED — start Mongo (npm run mongo:up) or set DATABASE_URL"}\n`)
+    logger.info(ok ? "Database connected" : "Database NOT CONNECTED — start Mongo (npm run mongo:up) or set DATABASE_URL")
   );
 });
 
@@ -288,10 +331,20 @@ if (env.snapshotsEnabled) {
   setInterval(() => {
     void runScheduledSnapshots();
   }, env.snapshotIntervalHours * 3_600_000);
-  console.log(`  Backups       · scheduled snapshots every ${env.snapshotIntervalHours}h (SNAPSHOTS_ENABLED=false to disable)`);
+  logger.info("Scheduled snapshots enabled", { intervalHours: env.snapshotIntervalHours });
 } else {
-  console.log(`  Backups       · scheduled snapshots DISABLED (SNAPSHOTS_ENABLED=false)`);
+  logger.info("Scheduled snapshots disabled (SNAPSHOTS_ENABLED=false)");
 }
 
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
-process.on("SIGINT", () => server.close(() => process.exit(0)));
+// Graceful shutdown — drain connections before exiting.
+function shutdown(signal: string) {
+  logger.info(`${signal} received — shutting down gracefully`);
+  server.close(() => {
+    logger.info("Server closed");
+    process.exit(0);
+  });
+  // Force exit after 10s if connections don't drain.
+  setTimeout(() => process.exit(1), 10_000);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

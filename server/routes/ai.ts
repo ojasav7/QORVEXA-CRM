@@ -48,10 +48,12 @@ async function runAi<T extends InsightInput>(
 ) {
   const decision = await routeModel(user.orgId, environment, feature);
   const result = await generate();
+  // Phase 16 (ADR-028): when the generator itself called a real model it
+  // returns modelId/latencyMs — those win over the catalog's simulated values.
   const insight = await saveInsight(user.orgId, environment, user.id, {
     ...result,
-    modelId: decision.picked,
-    latencyMs: decision.candidates.find((c) => c.name === decision.picked)?.latencyMs ?? 120,
+    modelId: (result as any).modelId ?? decision.picked,
+    latencyMs: (result as any).latencyMs ?? decision.candidates.find((c) => c.name === decision.picked)?.latencyMs ?? 120,
   });
   return { insight, decision };
 }

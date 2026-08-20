@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Mail, Send, RefreshCcw, Inbox, ArrowUpRight, Search, Trash2, MessageSquareReply, Eye, MousePointerClick, FileText } from "lucide-react";
 import { api, del, post, ApiError } from "../lib/api";
 import { Badge, EmptyState, Field, Modal, Spinner } from "../components/ui";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { timeAgo, dateTime } from "../lib/format";
 import type { EmailTemplate } from "./EmailTemplatesPage";
 
@@ -181,6 +182,8 @@ function ComposeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
   const [form, setForm] = useState({ toEmail: "", subject: "", body: "", templateId: "", contactId: "", opportunityId: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingTrackingUrl, setPendingTrackingUrl] = useState<string | null>(null);
 
   useEffect(() => {
     void api<{ items: EmailTemplate[] }>("/api/email-templates").then((d) => setTemplates(d.items)).catch(() => {});
@@ -211,9 +214,8 @@ function ComposeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
       });
       setError(null);
       onDone();
-      if (window.confirm(`Email sent — message ${d.message.subject}. Open the tracking pixel now to demo email.opened?`)) {
-        window.open(d.tracking.openUrl, "_blank");
-      }
+      setPendingTrackingUrl(d.tracking.openUrl);
+      setConfirmOpen(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to send");
     } finally {
@@ -258,6 +260,16 @@ function ComposeModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
           <button className="btn-primary" onClick={submit} disabled={busy}>{busy ? <Spinner className="size-4" /> : <Send className="size-4" />} Send</button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => { setConfirmOpen(false); setPendingTrackingUrl(null); }}
+        onConfirm={() => { if (pendingTrackingUrl) window.open(pendingTrackingUrl, "_blank"); }}
+        title="Open tracking pixel?"
+        message="Email sent successfully. Open the tracking pixel now to demo email.opened?"
+        confirmLabel="Open pixel"
+        variant="warning"
+      />
     </Modal>
   );
 }

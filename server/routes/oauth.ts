@@ -10,13 +10,16 @@ import { Router } from "express";
 import { env } from "../env";
 import { db } from "../db";
 import { asyncHandler, badRequest } from "../lib/http";
-import { SESSION_COOKIE } from "../lib/auth";
+import { SESSION_COOKIE, sessionCookieOpts } from "../lib/auth";
 import { issueSession } from "../lib/security";
 import { emitEvent } from "../lib/events";
 
 const router = Router();
 const STATE_COOKIE = "qorvexa.oauthstate";
 const APP_ORIGIN = process.env.OAUTH_REDIRECT_ORIGIN ?? "http://localhost:8787";
+// Post-OAuth redirects land on the CRM SPA (mounted at /app), where the Login
+// page reads the ?oauth= query param. The site root is the marketing page.
+const APP_LOGIN_URL = `${APP_ORIGIN}/app`;
 
 type ProviderCfg = {
   clientId: string;
@@ -73,7 +76,7 @@ router.get(
       // Dev shortcut: complete immediately with a mock email.
       const email = String(req.query.mockEmail ?? req.query.email ?? "admin@qorvexa.dev");
       const user = await db().user.findUnique({ where: { email } });
-      if (!user || !user.active) return res.redirect(`${APP_ORIGIN}/?oauth=error=no_account`);
+      if (!user || !user.active) return res.redirect(`${APP_LOGIN_URL}?oauth=error=no_account`);
       finishLogin(user, provider, null, req, res);
       return;
     }
@@ -130,20 +133,14 @@ router.get(
     if (provider === "github" && (typeof profile.id === "number" || typeof profile.id === "string")) oauthId = String(profile.id);
 
     const user = await db().user.findUnique({ where: { email } });
-    if (!user || !user.active) return res.redirect(`${APP_ORIGIN}/?oauth=error=no_account`);
+    if (!user || !user.active) return res.redirect(`${APP_LOGIN_URL}?oauth=error=no_account`);
     await finishLogin(user, provider, oauthId, req, res);
   })
 );
 
 async function finishLogin(user: { id: string; orgId: string; email: string; name: string; role: string }, provider: string, oauthId: string | null, req: any, res: any) {
   const session = { id: user.id, orgId: user.orgId, email: user.email, name: user.name, role: user.role };
-  res.cookie(SESSION_COOKIE, await issueSession(session, req), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-    path: "/",
-  });
+  res.cookie(SESSION_COOKIE, await issueSession(session, req), sessionCookieOpts(req));
   void db()
     .user.update({
       where: { id: user.id },
@@ -151,7 +148,7 @@ async function finishLogin(user: { id: string; orgId: string; email: string; nam
     })
     .catch(() => {});
   void emitEvent({ orgId: user.orgId, environment: "production", type: "user.logged_in", entity: "user", entityId: user.id, actorId: user.id, payload: { via: "oauth" } });
-  res.redirect(`${APP_ORIGIN}/?oauth=success`);
+  res.redirect(`${APP_LOGIN_URL}?oauth=success`);
 }
 
 export default router;

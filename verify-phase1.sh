@@ -3,24 +3,16 @@
 set -u
 BASE=http://localhost:8787
 COOKIE=/tmp/qorvexa-cookie.txt
-PASS=0; FAIL=0
-say() { printf '%-70s' "$1"; }
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
+source "$(dirname "$0")/lib/test-helpers.sh"
 
 # ── auth ──────────────────────────────────────────────────────────────
-rm -f "$COOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
+login "$COOKIE"
 ME=$(curl -s -b "$COOKIE" "$BASE/api/auth/me")
 echo "$ME" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 
 # rep login for 403 checks (Leo is the seeded rep)
 REPCOOKIE=/tmp/qorvexa-rep-cookie.txt
-rm -f "$REPCOOKIE"
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
+login_rep "$REPCOOKIE"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login"
 
 # ── 1. Lead routing (round-robin) ─────────────────────────────────────
@@ -158,9 +150,4 @@ GONE=$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIE" "$BASE/api/contacts/$
 check "$GONE" "404" "merge record deleted"
 curl -s -b "$COOKIE" "$BASE/api/events?pageSize=100" | grep -q '"contact.merged"' && ok "contact.merged event emitted" || bad "no contact.merged event"
 
-echo
-echo "════════════════════════════════════════════"
-echo "  PASS: $PASS   FAIL: $FAIL"
-echo "════════════════════════════════════════════"
-[ "$FAIL" = "0" ] && echo "PHASE 1 SMOKE SUITE: ALL GREEN ✅" || echo "PHASE 1 SMOKE SUITE: FAILURES ⚠️"
-exit $FAIL
+summary "PHASE 1 SMOKE SUITE"

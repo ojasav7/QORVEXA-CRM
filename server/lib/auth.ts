@@ -9,6 +9,23 @@ import { issueSession, resolveSession } from "./security";
 export const SESSION_COOKIE = "qorvexa.session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// Session cookie options. `secure` follows the REQUEST (HTTPS behind a proxy,
+// or direct TLS), NOT NODE_ENV — a container running with NODE_ENV=production
+// over plain HTTP would otherwise set a Secure cookie the browser silently
+// drops, and login would never stick. Express `req.secure` reflects
+// X-Forwarded-Proto once trust proxy is configured (see server/index.ts).
+export function sessionCookieOpts(req: Request): Record<string, unknown> {
+  const forwarded = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0]?.trim();
+  const secure = req.secure || forwarded === "https";
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure,
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+  };
+}
+
 export type SessionUser = {
   id: string;
   orgId: string;

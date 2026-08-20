@@ -12,6 +12,7 @@ import { asyncHandler, badRequest, notFound, ok } from "../lib/http";
 import { resolveEnvironment } from "../lib/environment";
 import { emitEvent } from "../lib/events";
 import { mergeTemplate, trackingToken, drainMockInbound, mockReplyBody, openPixelUrl, clickRedirectUrl } from "../lib/comm";
+import { sendOutboundWithProvider } from "../lib/integrations/email";
 
 const router = Router();
 
@@ -114,6 +115,10 @@ router.post(
         ownerId: user.id,
       },
     });
+    // Phase 16 (ADR-028): when a real email provider is configured, fire the
+    // actual send AFTER the row exists (async) — success stores the provider
+    // message id, failure flips the row to "failed" + emits email.failed.
+    void sendOutboundWithProvider(created);
     // Tracking links are attached in the payload so webhooks/UI can render them.
     const tracking = { openUrl: openPixelUrl(token), clickUrl: (u: string) => clickRedirectUrl(token, u) };
     await emitEvent({

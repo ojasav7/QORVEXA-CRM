@@ -12,18 +12,10 @@ BASE=http://localhost:8787
 COOKIE=/tmp/q9-admin.txt
 REPCOOKIE=/tmp/q9-rep.txt
 MGRCOOKIE=/tmp/q9-mgr.txt
-PASS=0; FAIL=0
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
-jget() { python -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+source "$(dirname "$0")/lib/test-helpers.sh"
+login "/tmp/q9-admin.txt"
+login_rep "/tmp/q9-rep.txt"
 
-rm -f "$COOKIE" "$REPCOOKIE" "$MGRCOOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$MGRCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d '{"email":"priya@qorvexa.dev","password":"password123"}' > /dev/null
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login failed"
@@ -255,8 +247,5 @@ curl -s -b "$COOKIE" -X DELETE "$BASE/api/leads/$AUTO_ID" $ENV > /dev/null
 curl -s -b "$COOKIE" -X DELETE "$BASE/api/leads/$SBL_ID" $SBENV > /dev/null
 PROD_AG2=$(curl -s -b "$COOKIE" "$BASE/api/agents" $ENV)
 echo "$PROD_AG2" | grep -q "Smoke Red" && bad "smoke agent left behind" || ok "smoke agents cleaned up"
-echo
-echo "════════════════════════════════════════════"
-echo "  PASS: $PASS   FAIL: $FAIL"
-echo "════════════════════════════════════════════"
-if [ "$FAIL" = "0" ]; then echo "PHASE 9 SMOKE SUITE: ALL GREEN ✅"; else echo "PHASE 9 SMOKE SUITE: FAILURES ❌"; fi
+
+summary "PHASE 9"

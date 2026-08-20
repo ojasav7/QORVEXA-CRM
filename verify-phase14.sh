@@ -14,11 +14,8 @@ BASE=http://localhost:8787
 COOKIE=/tmp/q14-admin.txt
 REPCOOKIE=/tmp/q14-rep.txt
 MIACOOKIE=/tmp/q14-mia.txt
-PASS=0; FAIL=0
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
-jget() { python -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+source "$(dirname "$0")/lib/test-helpers.sh"
+login "/tmp/q14-admin.txt"
 
 # RFC 6238 TOTP in pure python (HMAC-SHA1, 6 digits, 30s window).
 totp() {
@@ -35,11 +32,6 @@ print(f"{code:06d}")
 EOF
 }
 
-rm -f "$COOKIE" "$REPCOOKIE" "$MIACOOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login failed"
 
@@ -97,7 +89,6 @@ check "$RACK" "403" "rep acknowledge alert → 403 (manager+ only)"
 MIA=$(curl -s -b "$COOKIE" -X POST "$BASE/api/users" $ENV -H 'content-type: application/json' \
   -d "{\"name\":\"Mia Test\",\"email\":\"mia-$TS@qorvexa.dev\",\"password\":\"password123\",\"role\":\"rep\"}")
 echo "$MIA" | grep -q '"role":"rep"' && ok "created MFA test user" || bad "user create failed: $MIA"
-curl -s -c "$MIACOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"mia-$TS@qorvexa.dev\",\"password\":\"password123\"}" > /dev/null
 SETUP=$(curl -s -b "$MIACOOKIE" -X POST "$BASE/api/security/mfa/setup" $ENV -H 'content-type: application/json' -d '{}')
 SECRET=$(echo "$SETUP" | jget "['secret']")
@@ -109,6 +100,7 @@ RECOVERY=$(echo "$VERIFY" | jget "['recoveryCodes'][0]")
 curl -s -b "$COOKIE" "$BASE/api/events?type=mfa.enabled&pageSize=3" $ENV | grep -q '"type":"mfa.enabled"' && ok "mfa.enabled event emitted" || bad "mfa.enabled event missing"
 # Logout → login now requires the second factor.
 curl -s -b "$MIACOOKIE" -X POST "$BASE/api/auth/logout" > /dev/null
+# Re-login with MFA required
 CHALLENGE=$(curl -s -c "$MIACOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"mia-$TS@qorvexa.dev\",\"password\":\"password123\"}")
 echo "$CHALLENGE" | grep -q '"mfaRequired":true' && echo "$CHALLENGE" | grep -q '"mfaToken"' && ok "login issues MFA challenge (no session cookie)" || bad "mfa challenge missing: $CHALLENGE"
@@ -119,6 +111,7 @@ echo "$MFAOK" | grep -q '"role":"rep"' && ok "TOTP code completes the login hand
 curl -s -b "$MIACOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "session valid after MFA handshake" || bad "session invalid after MFA"
 # Recovery code path.
 curl -s -b "$MIACOOKIE" -X POST "$BASE/api/auth/logout" > /dev/null
+# Re-login for recovery code test
 CH2=$(curl -s -c "$MIACOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"mia-$TS@qorvexa.dev\",\"password\":\"password123\"}")
 MT2=$(echo "$CH2" | jget "['mfaToken']")
@@ -126,6 +119,7 @@ RC=$(curl -s -X POST "$BASE/api/auth/mfa-verify" -H 'content-type: application/j
 check "$RC" "rep" "one-time recovery code completes login"
 # Failed attempt → security alert + security.threat_detected.
 curl -s -b "$MIACOOKIE" -X POST "$BASE/api/auth/logout" > /dev/null
+# Re-login for failed attempt test
 CH3=$(curl -s -c "$MIACOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"mia-$TS@qorvexa.dev\",\"password\":\"password123\"}")
 MT3=$(echo "$CH3" | jget "['mfaToken']")
@@ -134,7 +128,6 @@ check "$BADCODE" "400" "wrong TOTP rejected"
 curl -s -b "$COOKIE" "$BASE/api/events?type=security.threat_detected&pageSize=10" $ENV | grep -q '"category":"mfa"' && ok "failed MFA raises security.threat_detected" || bad "threat event missing"
 # Disable with a valid TOTP (restores the user to password-only). Complete a
 # fresh MFA login first so the disable request runs with a valid session.
-CH4=$(curl -s -c "$MIACOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' -d "{\"email\":\"mia-$TS@qorvexa.dev\",\"password\":\"password123\"}")
 MT4=$(echo "$CH4" | jget "['mfaToken']")
 DCODE=$(totp "$SECRET")
 curl -s -b "$MIACOOKIE" -c "$MIACOOKIE" -X POST "$BASE/api/auth/mfa-verify" -H 'content-type: application/json' -d "{\"mfaToken\":\"$MT4\",\"code\":\"$DCODE\"}" > /dev/null
@@ -164,8 +157,6 @@ RA=$(curl -s -b "$COOKIE" -X POST "$BASE/api/security/sessions/revoke-all" $ENV 
 python -c "import json,sys; d=json.loads('''$RA'''); exit(0 if d['revoked']>=1 else 1)" && ok "revoke-all signs out other devices (current kept)" || bad "revoke-all failed: $RA"
 # Re-login the rep AFTER the revoke-all sweep (it revokes every non-current
 # session) so the rest of the suite runs with a live rep cookie.
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep re-login after revoke-all" || bad "rep re-login failed"
 
 # ── 5. Policy + IP-allowlist enforcement ───────────────────────────────────
@@ -337,5 +328,5 @@ curl -s -b "$COOKIE" -X PUT "$BASE/api/features/sec.status" $ENV -H 'content-typ
 
 echo
 echo "── Phase 14 verify: $PASS passed, $FAIL failed ──"
-[ "$FAIL" -eq 0 ] && echo "✅ ALL GREEN" || echo "❌ $FAIL FAILURE(S)"
-exit "$FAIL"
+
+summary "PHASE 14"

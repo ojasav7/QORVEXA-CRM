@@ -44,7 +44,7 @@ export default function BookingPagesPage() {
     setCopied(id);
     setTimeout(() => setCopied(null), 1500);
   };
-  const url = (p: BookingPage) => `${window.location.origin}/b/${p.slug}`;
+  const url = (p: BookingPage) => `${window.location.origin}/app/b/${p.slug}`;
 
   const toggleActive = async (p: BookingPage) => {
     try {

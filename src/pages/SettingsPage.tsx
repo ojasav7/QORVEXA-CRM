@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Copy, Check, Pencil, KeyRound, GitBranch, RefreshCcw, ArrowRight, Database, Flag, HardDriveDownload, Shield, Globe, KeySquare, Route as RouteIcon, ClipboardList, Share2, Layers, ArrowUp, ArrowDown, Star } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Pencil, KeyRound, GitBranch, RefreshCcw, ArrowRight, Database, Flag, HardDriveDownload, Shield, Globe, KeySquare, Route as RouteIcon, ClipboardList, Share2, Layers, ArrowUp, ArrowDown, Star, Plug, Mail, Cpu, Phone } from "lucide-react";
 import { api, del, patch, post, ApiError, type User, type Org } from "../lib/api";
 import { Badge, Field, Modal, Spinner } from "../components/ui";
 import { useSession } from "../App";
@@ -13,7 +13,7 @@ type Webhook = { id: string; url: string; events: string[]; secret: string; acti
 
 export default function SettingsPage() {
   const { user, org, refresh } = useSession();
-  const [tab, setTab] = useState<"team" | "fields" | "webhooks" | "environments" | "flags" | "backups" | "tokens" | "routing" | "forms" | "pipelines">("team");
+  const [tab, setTab] = useState<"team" | "fields" | "webhooks" | "environments" | "flags" | "backups" | "tokens" | "routing" | "forms" | "pipelines" | "integrations">("team");
   const isAdmin = user?.role === "admin";
 
   const tabs: [string, string][] = [
@@ -27,6 +27,7 @@ export default function SettingsPage() {
     ["routing", "Lead routing"],
     ["forms", "Lead capture"],
     ["pipelines", "Pipelines"],
+    ["integrations", "Integrations"],
   ];
 
   return (
@@ -54,6 +55,89 @@ export default function SettingsPage() {
       {tab === "routing" && (isAdmin ? <LeadRoutingTab /> : <NotAdmin />)}
       {tab === "forms" && (isAdmin ? <LeadCaptureTab /> : <NotAdmin />)}
       {tab === "pipelines" && (isAdmin ? <PipelinesTab /> : <NotAdmin />)}
+      {tab === "integrations" && (isAdmin ? <IntegrationsTab /> : <NotAdmin />)}
+    </div>
+  );
+}
+
+// ── Integrations (Phase 16 · real provider integrations, ADR-028) ────────────
+type Capability = { provider: string; configured: boolean; notes: string[] };
+type IntegrationsStatus = { integrations: { email: Capability; ai: Capability; telephony: Capability; webhooks: { email: string } } };
+
+function IntegrationsTab() {
+  const [status, setStatus] = useState<IntegrationsStatus["integrations"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api<IntegrationsStatus>("/api/integrations/status")
+      .then((d) => setStatus(d.integrations))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load provider status"));
+  }, []);
+
+  if (error) return <div className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-400">{error}</div>;
+  if (!status) return <div className="p-8 text-center"><Spinner className="mx-auto size-5" /></div>;
+
+  const cards: { key: "email" | "ai" | "telephony"; icon: React.ReactNode; title: string; docs: string }[] = [
+    { key: "email", icon: <Mail className="size-4 text-accent-400" />, title: "Email", docs: "docs/14-communication-guide.md" },
+    { key: "ai", icon: <Cpu className="size-4 text-accent-400" />, title: "AI models", docs: "docs/28-ai-guide.md" },
+    { key: "telephony", icon: <Phone className="size-4 text-accent-400" />, title: "Telephony", docs: "docs/14-communication-guide.md" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="card overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] px-6 py-4">
+          <Plug className="size-4 text-accent-400" />
+          <h2 className="text-sm font-semibold text-white">Provider integrations</h2>
+        </div>
+        <p className="border-b border-white/[0.06] px-6 py-3 text-xs text-slate-500">
+          Providers are deployment configuration (env vars) — this card is read-only status. Everything defaults to <span className="font-mono text-slate-300">mock</span> (no keys needed, demo/CI safe); a missing key is a graceful fallback, never a crash. See <span className="font-mono text-accent-400">docs/54-spec-phase16.md</span> for every variable.
+        </p>
+        <div className="divide-y divide-white/[0.04]">
+          {cards.map((c) => {
+            const s = status[c.key];
+            return (
+              <div key={c.key} className="flex flex-wrap items-center gap-3 px-6 py-4">
+                {c.icon}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-white">{c.title}</span>
+                    <span className="font-mono text-xs text-slate-600">{s.provider}</span>
+                    <Badge tone={s.configured ? "green" : s.provider === "mock" ? "default" : "amber"}>{s.configured ? "active" : s.provider === "mock" ? "mock" : "incomplete"}</Badge>
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {s.notes.length ? s.notes.join(" · ") : "Everything configured — real sends are live."}
+                  </div>
+                </div>
+                <span className="font-mono text-[11px] text-slate-600">{c.docs}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="card overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] px-6 py-4">
+          <Shield className="size-4 text-slate-400" />
+          <h2 className="text-sm font-semibold text-white">Webhooks to register with providers</h2>
+        </div>
+        <div className="space-y-1.5 px-6 py-4 font-mono text-xs text-slate-500">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-slate-400">Email events (Resend / SendGrid)</span>
+            <span className="text-accent-300">{window.location.origin}/api/integrations/email/webhook</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-slate-400">Twilio status callbacks</span>
+            <span className="text-accent-300">{window.location.origin}/api/integrations/twilio/status/:callId</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-slate-400">Twilio recordings / transcripts</span>
+            <span className="text-accent-300">{window.location.origin}/api/integrations/twilio/recording/:callId</span>
+          </div>
+          <p className="pt-2 font-sans text-[11px] text-slate-600">
+            In production the base URL must be publicly reachable (set <span className="font-mono">PUBLIC_BASE_URL</span>). Signature verification is enforced when <span className="font-mono">EMAIL_WEBHOOK_SECRET</span> / Twilio credentials are configured; in dev the payload must reference a real row by its tracking token (capability proof).
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -173,7 +257,7 @@ function LeadCaptureTab() {
     setCopied(id);
     setTimeout(() => setCopied(null), 1500);
   };
-  const url = (f: LeadFormRow) => `${window.location.origin}/forms/${f.slug}`;
+  const url = (f: LeadFormRow) => `${window.location.origin}/app/forms/${f.slug}`;
   const embed = (f: LeadFormRow) => `<iframe src="${url(f)}" width="100%" height="560" frameBorder="0" title="${f.name}"></iframe>`;
 
   const toggleActive = async (f: LeadFormRow) => {

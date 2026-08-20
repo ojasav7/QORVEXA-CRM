@@ -391,6 +391,11 @@ model Message {
   direction     String   @default("out") // in | out
   threadId      String // groups a conversation (set to own id on first send)
   trackingToken String? // for outbound tracking (open pixel + click redirect)
+  // Phase 16 · real provider integrations (ADR-028) — which adapter sent this
+  // row and the provider's own message id (event-webhook correlation). Both
+  // null in mock mode.
+  provider          String? // "mock" | "resend" | "sendgrid" (adapter used to send)
+  providerMessageId String? // provider's message id (email.open/click/bounce… webhooks)
   fromEmail     String
   toEmail       String
   subject       String

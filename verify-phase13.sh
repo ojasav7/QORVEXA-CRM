@@ -13,17 +13,9 @@ set -u
 BASE=http://localhost:8787
 COOKIE=/tmp/q13-admin.txt
 REPCOOKIE=/tmp/q13-rep.txt
-PASS=0; FAIL=0
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
-jget() { python -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+source "$(dirname "$0")/lib/test-helpers.sh"
+login "/tmp/q13-admin.txt"
 
-rm -f "$COOKIE" "$REPCOOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
-curl -s -c "$REPCOOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"leo@qorvexa.dev","password":"password123"}' > /dev/null
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | grep -q '"role":"admin"' && ok "admin login" || bad "admin login failed"
 curl -s -b "$REPCOOKIE" "$BASE/api/auth/me" | grep -q '"role":"rep"' && ok "rep login (leo)" || bad "rep login failed"
 
@@ -157,5 +149,5 @@ echo "$SB_PART" | grep -q '"items":\[\]' && ok "sandbox has no partners (isolate
 
 echo
 echo "──────────────────────────────────────────────"
-echo "Phase 13: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] || exit 1
+
+summary "PHASE 13"

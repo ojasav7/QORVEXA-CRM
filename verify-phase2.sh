@@ -3,15 +3,9 @@
 set -u
 BASE=http://localhost:8787
 COOKIE=/tmp/q2-cookie.txt
-PASS=0; FAIL=0
-say() { printf '%-72s' "$1"; }
-ok() { echo "  ✅ $1"; PASS=$((PASS+1)); }
-bad() { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
-check() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2' got '$1')"; fi; }
+source "$(dirname "$0")/lib/test-helpers.sh"
 
-rm -f "$COOKIE"
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'content-type: application/json' \
-  -d '{"email":"admin@qorvexa.dev","password":"password123"}' > /dev/null
+login "$COOKIE"
 
 # ── 1. Pipeline listing (seeded Sales + Renewals) ────────────────────────────
 PIPES=$(curl -s -b "$COOKIE" "$BASE/api/pipelines")
@@ -133,9 +127,4 @@ curl -s -b "$COOKIE" -X DELETE "$BASE/api/pipelines/$NEWP2_ID" > /dev/null
 DASH=$(curl -s -b "$COOKIE" "$BASE/api/dashboard")
 echo "$DASH" | grep -q '"stage":"negotiation"' && ok "dashboard snapshot uses default pipeline stages" || bad "dashboard snapshot missing stages: ${DASH:0:200}"
 
-echo
-echo "════════════════════════════════════════════"
-echo "  PASS: $PASS   FAIL: $FAIL"
-echo "════════════════════════════════════════════"
-[ "$FAIL" = "0" ] && echo "PHASE 2-lite SMOKE SUITE: ALL GREEN ✅" || echo "PHASE 2-lite SMOKE SUITE: FAILURES ⚠️"
-exit $FAIL
+summary "PHASE 2-lite SMOKE SUITE"

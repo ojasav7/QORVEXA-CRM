@@ -30,7 +30,7 @@
   - a per-IP rate limit (10/min),
   - duplicate emails → `{ ok: true, duplicate: true }` **without leaking existence**,
   - inactive forms → 400.
-- Submissions act as a system actor (the form id) in the org's production env → created leads flow through normal duplicate detection **and round-robin routing**, with `source: "Website"` + a `lead.captured` event. Standalone page at `/forms/:slug` renders the form from the public config.
+- Submissions act as a system actor (the form id) in the org's production env → created leads flow through normal duplicate detection **and round-robin routing**, with `source: "Website"` + a `lead.captured` event. Standalone page at `/app/forms/:slug` (the SPA's public route; `/forms/:slug` redirects) renders the form from the public config.
 
 ### 5. Duplicate merge UI
 - `POST /api/merge` — `{ objectType, masterId, mergeId, fieldChoices? }`; per-field choice of which record wins (default master); merge record deleted; `<type>.merged` (`via: "records"`) + audit rows.

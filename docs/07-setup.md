@@ -1,5 +1,24 @@
 # 07 · Setup, Deployment & Troubleshooting
 
+## One URL, one stack (landing page + CRM app)
+
+The public **landing page** (`qorvexacrm/`, a static Vite app) and the **CRM app**
+(the React SPA) are served by the same Express server and ship in one Docker
+image — no separate hosting, no CORS:
+
+- `https://your-domain/` → marketing landing page
+- `https://your-domain/app` → CRM app (SPA at the `/app` base)
+- `https://your-domain/api/*` → REST API
+- `https://your-domain/app/forms/<slug>` → public lead-capture forms
+  (`/app/b/<slug>` booking, `/app/p/<slug>` portal, `/app/l/<slug>` landing)
+  — old root-level URLs (`/forms/x`, …) redirect here
+
+The landing page's **Request a demo** form POSTs to the CRM's public lead
+endpoint (`/api/public/forms/request-a-demo/submit`) — every submission becomes a
+real lead (source "Website", round-robin routed). The form + its custom fields
+are seeded by `npm run seed`; delete the form in Settings → Lead capture to take
+it offline. See `qorvexacrm/README.md` for landing-page details.
+
 ## Local development
 
 ```bash
@@ -9,9 +28,14 @@ cp .env.example .env      # set DATABASE_URL + SESSION_SECRET
 npm run db:generate
 npm run db:push           # sync schema to Mongo
 npm run backfill:env      # ONLY if upgrading a DB that already has data (stamps environment="production")
-npm run seed              # optional demo data
+npm run seed              # optional demo data (creates the request-a-demo form too)
 npm run dev               # API :8787 + Vite :5173 (proxies /api)
 ```
+
+In dev the CRM SPA runs on Vite at `http://localhost:5173/app` (the `/app` base
+redirects to it; `/api` is proxied to :8787). For the landing page locally:
+`cd qorvexacrm && npm install && npm run dev` (port 5174 — set
+`VITE_CRM_API=http://localhost:8787/api` when running it standalone).
 
 `.env` values: see `.env.example`.
 
@@ -40,11 +64,15 @@ Prisma **requires a replica set** on MongoDB. Atlas (M0+) is a replica set by de
 ## Production build & deploy
 
 ```bash
-npm run build             # typecheck + client → dist/
-npm start                 # Express serves /api + dist/ on PORT (tsx, now a runtime dep)
+npm run build             # typecheck + CRM app → dist/ + landing page → landing/
+npm start                 # Express serves /api + dist/ (/app) + landing/ (/) on PORT
 ```
 
-> `npm start` runs the TypeScript server via `tsx` — `tsx` is in `dependencies` so a bare `npm ci --omit=dev` install still boots. `NODE_ENV=production` is required for the session-secret guard to engage (the app refuses to boot with the default secret).
+> `npm run build` builds BOTH apps: the CRM SPA into `dist/` (mounted at `/app`)
+> and the landing page (`qorvexacrm/`) into `landing/` (served at the site
+> root). `npm start` runs the TypeScript server via `tsx` — `tsx` is in
+> `dependencies` so a bare `npm ci --omit=dev` install still boots.
+> `NODE_ENV=production` is required for the session-secret guard to engage.
 
 ### Docker Compose (recommended)
 
@@ -65,7 +93,18 @@ curl http://localhost:8787/api/health      # → { "status": "ok", "db": "connec
 docker compose -f docker-compose.prod.yml ps   # app should be (healthy)
 ```
 
-First-run only: create the admin workspace in the browser (`/register`), then `npm run seed` is **not** required (the DB starts empty). To load demo data instead: `docker compose -f docker-compose.prod.yml exec app npm run seed`.
+First-run only: create the admin workspace in the browser (`/app/register` — note the `/app` base), then `npm run seed` is **not** required (the DB starts empty). To load demo data instead: `docker compose -f docker-compose.prod.yml exec app npm run seed`.
+
+Verify the whole surface after boot:
+
+```bash
+curl -L http://localhost:8787/          # landing page (site root)
+curl -L http://localhost:8787/app       # CRM app (redirects to /app/)
+curl -X POST http://localhost:8787/api/public/forms/request-a-demo/submit \
+  -H 'content-type: application/json' \
+  -d '{"firstName":"Alex","lastName":"Mercer","email":"alex@example.com","company":"Example","teamSize":"51-200","notes":"Pipeline demo","company_website":""}'
+# → { "ok": true, "duplicate": false, "leadId": "..." } — the lead shows up in the CRM
+```
 
 Operational notes:
 - **Data persistence** — named volumes `qorvexa-prod-mongo`, `qorvexa-prod-backups`, `qorvexa-prod-portability` survive `down`/`up`. To wipe everything: `docker compose -f docker-compose.prod.yml down -v`.
@@ -82,6 +121,9 @@ Operational notes:
 3. Start: `npm start`
 4. Env vars: `DATABASE_URL`, `SESSION_SECRET`, `PORT=8787`, `PUBLIC_BASE_URL=https://<your-app>.onrender.com`, `NODE_ENV=production`.
 5. Use a hosted Mongo (Atlas M0+) — Prisma needs a replica set, which a single container can't provide. Render's free disk is ephemeral, so set `SNAPSHOTS_ENABLED=false` or attach a disk for `backups/`.
+
+> The same build serves the landing page at `/` and the CRM app at `/app` on
+> Render — no extra service needed.
 
 ### Vercel
 

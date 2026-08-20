@@ -57,6 +57,16 @@ async function main() {
       ],
     });
   }
+  // The landing page's demo form captures teamSize + notes on the lead — they
+  // must exist as registered custom fields or the object service drops them.
+  if (!(await p.fieldDef.findFirst({ where: { orgId, objectType: "lead", key: "teamSize" } }))) {
+    await p.fieldDef.createMany({
+      data: [
+        { orgId, objectType: "lead", key: "teamSize", label: "Team size", type: "select", order: 0, options: ["1-10", "11-50", "51-200", "200+"] },
+        { orgId, objectType: "lead", key: "notes", label: "What do you want to see?", type: "text", order: 1 },
+      ],
+    });
+  }
 
   // Accounts
   const accountSeeds = [
@@ -284,6 +294,26 @@ async function main() {
         orgId, name: "Intro call — Qorvexa", slug: "intro-call", description: "A 30-minute intro call to see QORVEXA in action.",
         durationMins: 30, bufferMins: 5, hostPool: [priya.id, leo.id], cursor: 0,
         availableDays: [1, 2, 3, 4, 5], startHour: 9, endHour: 17, timezone: "UTC", active: true,
+      },
+    });
+  }
+
+  // The landing page's demo form (qorvexacrm) posts to /api/public/forms/
+  // request-a-demo/submit — this seeded form is what makes that intake work
+  // out of the box. Delete it in Settings → Lead capture to take it offline.
+  if (!(await p.leadForm.findFirst({ where: { orgId, slug: "request-a-demo" } }))) {
+    await p.leadForm.create({
+      data: {
+        orgId, name: "Request a demo (landing page)", slug: "request-a-demo", submitLabel: "Request a demo",
+        fields: [
+          { key: "firstName", label: "First name", required: true, type: "text" },
+          { key: "lastName", label: "Last name", required: true, type: "text" },
+          { key: "email", label: "Work email", required: true, type: "email" },
+          { key: "company", label: "Company", required: true, type: "text" },
+          { key: "teamSize", label: "Team size", required: false, type: "text" },
+          { key: "notes", label: "What do you want to see?", required: false, type: "textarea" },
+        ],
+        active: true,
       },
     });
   }

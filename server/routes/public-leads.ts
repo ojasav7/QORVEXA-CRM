@@ -53,6 +53,10 @@ const submitSchema = z.object({
   email: z.string().email().max(200),
   phone: z.string().max(60).optional(),
   company: z.string().max(160).optional(),
+  // Landing-page extras (request-a-demo): not core lead fields — they land in
+  // the lead's `custom` JSON via the object service's splitFields.
+  teamSize: z.string().max(40).optional(),
+  notes: z.string().max(1000).optional(),
   [HONEYPOT]: z.any().optional(),
 });
 router.post(
@@ -76,6 +80,9 @@ router.post(
       ...(input.company ? { company: input.company } : {}),
       source: "Website",
       status: "new",
+      // Captured on the lead's custom fields so the sales team can qualify:
+      ...(input.teamSize ? { teamSize: input.teamSize } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
     };
     // The form's allowed-fields list is the org's configured surface — submit
     // as a system actor in the form's org so field-permission restrictions on

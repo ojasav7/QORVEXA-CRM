@@ -11,6 +11,7 @@
 import { db } from "../db";
 import { emitEvent } from "./events";
 import { trackingToken, mergeTemplate, openPixelUrl, clickRedirectUrl } from "./comm";
+import { sendOutboundWithProvider } from "./integrations/email";
 import { listConditions } from "./access";
 import { parseCriteria, criteriaWhere } from "./segments";
 import { getObjectDef } from "./registry";
@@ -128,6 +129,8 @@ export async function sendCampaign(
         ownerId: actor.id,
       },
     });
+    // Phase 16 (ADR-028): fire the real provider send after the row exists.
+    void sendOutboundWithProvider(message);
     const recipient = await db().campaignRecipient.create({
       data: {
         orgId: campaign.orgId,

@@ -1107,3 +1107,77 @@ ship as one coherent surface without 12 new routers.
 - (−) Graph-v2 roles are derived heuristics (title + involvement), not
   curated; the simulator is deterministic arithmetic, not probabilistic; UBQ
   answers the phrasings its parser understands rather than hallucinating.
+
+## ADR-028 · Phase 16 = real provider integrations behind the same adapter shape, mock-first (no external dependency is ever required to boot)
+
+**Status:** Accepted
+
+**Context:** Phase 15 completed the 16-phase blueprint, but every communication,
+AI, and telephony surface still runs on the ADR-014 mock discipline — email is
+`EMAIL_MOCK=1` (no real sends), the model router *decides* without ever
+calling a model, call recording/transcripts are placeholders. The natural next
+phase is real providers (email: Resend/SendGrid, AI: OpenAI, telephony:
+Twilio) — but the repo's verification story (15 verify scripts, fresh seeded
+stacks, CI-friendly) depends on zero external credentials, and the blueprint's
+multi-tenant design means provider choice is a deployment concern, not an org
+setting. The architecture question: how to add real integrations without
+breaking mock mode, without a dependency explosion, and without per-org
+provider state.
+
+**Decision:**
+
+1. **Providers are env-driven, not org state.** `EMAIL_PROVIDER`,
+   `AI_PROVIDER`, and the Twilio vars are environment configuration (the
+   ADR-014 pattern extended): `mock` is always the default, a missing key
+   means mock, and no org row or feature flag changes. `GET
+   /api/integrations/status` (admin) surfaces the active providers without
+   ever exposing a secret.
+2. **One narrow adapter interface per capability, REST-over-`fetch`.**
+   `sendEmail({ from, to, subject, body, headers }) → { providerMessageId }`
+   for email (mock / resend / sendgrid); call-create + status/recording
+   callbacks for Twilio; `maybeCallLlm(...) → { text, modelId, latencyMs,
+   usage } | null` for AI. No new npm dependencies (Node 24's global
+   `fetch`); a provider SDK can later replace an adapter without touching
+   callers.
+3. **Real sends are a post-create side effect, never a precondition.** Every
+   outbound email site creates the `Message` row first (unchanged behavior),
+   then `sendOutboundWithProvider` fires the real provider: success stores
+   `providerMessageId`, failure flips the row to `failed` + emits the new
+   `email.failed` event. The API contract (201 + tracking payload) is
+   identical in mock and real mode; delivery is asynchronous by nature.
+4. **Provider webhooks are public + capability-proofed.** Providers can't
+   log in, so `POST /api/integrations/email/webhook` and
+   `POST /api/integrations/twilio/status/:callId` are unauthenticated, with
+   signature verification when secrets are configured (SendGrid
+   `X-Twilio-Email-Event-Webhook-Signature`, Resend svix, Twilio
+   `X-Twilio-Signature`) AND a capability proof in dev: the payload must
+   reference a real row by its unguessable `trackingToken`/`providerMessageId`/
+   `callId`. Forged payloads can only touch rows whose token the attacker
+   already knows — no additional exposure. `enforceSecurityPolicy` (ADR-026)
+   skips unauthenticated requests, so IP allowlists never block webhooks.
+5. **Real AI is a strict enhancement behind the existing router.**
+   `provider: "openai"` `ModelRoute` rows become executable via
+   `maybeCallLlm`, seeded lazily when `OPENAI_API_KEY` is set; summaries +
+   drafts call the real model with the already-firewalled context, and any
+   miss (no key, mock provider, network/parse failure) falls back to the
+   deterministic generator. The AIInsight row still records `modelId` +
+   `latencyMs` + the redaction log — ADR-020's explainability/audit contract
+   holds for real models.
+
+**Consequences:**
+- (+) Mock mode is byte-for-byte unchanged: all 15 verify suites + the demo
+  run with zero credentials; `verify-phase16.sh` proves the platform works
+  before any key is configured.
+- (+) Real integrations are additive — a missing key is a graceful fallback,
+  never a crash or a boot failure; the app refuses nothing.
+- (+) The event bus keeps working: provider events (open/click/bounce/
+  unsubscribe/complaint/delivered, call completed) emit the same `email.*` /
+  `call.completed` events, so Phase 7 CDP mirroring, Phase 5 deliverability
+  metrics, Phase 15 memory learning, and Phase 11 success signals all light up
+  with real data with zero extra code.
+- (+) No dependency or schema churn: `fetch`-based adapters + two nullable
+  `Message` fields (additive).
+- (−) Real sends/deliveries are asynchronous — a send failure surfaces as
+  `status: failed` + `email.failed`, not a synchronous API error; inbound
+  email routing, provider SDKs, and non-AI LLM features remain non-goals
+  (documented in `docs/54-spec-phase16.md` §5).

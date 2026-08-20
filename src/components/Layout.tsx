@@ -6,7 +6,7 @@ import {
   Mail, Phone, CalendarDays, CalendarClock, FileText, Bell, GitMerge, CheckCheck,
   Sun, Moon, LifeBuoy, BookOpen, Globe, Megaphone, Rocket, Waypoints, Gauge,
   BarChart3, LayoutDashboard as ReportIcon, UserRound, Package, Sparkles, Route as RouteIcon, Bot, DollarSign,
-  HeartHandshake, HardHat, Store, Shield, Brain, Plus, ChevronDown,
+  HeartHandshake, HardHat, Store, Shield, Brain, Plus, ChevronDown, HelpCircle,
 } from "lucide-react";
 import type * as React from "react";
 import { useTheme } from "../lib/theme";
@@ -15,6 +15,7 @@ import { api, post } from "../lib/api";
 import { Kbd } from "./ui";
 import { initials } from "../lib/format";
 import type { Org } from "../lib/api";
+import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -28,7 +29,7 @@ const NAV = [
 ];
 
 export default function Layout() {
-  const { user, org, environment, environments, setEnvironment } = useSession();
+  const { user, org, environment, environments, setEnvironment, refresh } = useSession();
   const showImport = useFeature("import.merge");
   const showEmail = useFeature("comm.email");
   const showCalling = useFeature("comm.calling");
@@ -56,6 +57,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // ⌘K / Ctrl+K toggles the command palette; Escape closes it.
   useEffect(() => {
@@ -89,6 +91,9 @@ export default function Layout() {
       if (k === "/") {
         e.preventDefault(); // stops Firefox quick-find
         setPaletteOpen(true);
+      } else if (k === "?") {
+        e.preventDefault();
+        setShortcutsOpen(true);
       } else if (k === "n") {
         e.preventDefault();
         navigate("/leads?new=1");
@@ -144,8 +149,15 @@ export default function Layout() {
   };
 
   const logout = async () => {
-    await post("/api/auth/logout");
-    navigate("/login");
+    try {
+      await post("/api/auth/logout");
+    } catch {
+      // Cookie may already be gone — the local state refresh below is what matters.
+    }
+    // Re-fetch /me so session.user is cleared — navigating to /login while the
+    // session state still says "logged in" would bounce straight back to /.
+    await refresh();
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -603,6 +615,14 @@ export default function Layout() {
 
           <QuickCreate />
           {showWorkflows && <NotificationBell />}
+          <button
+            onClick={() => setShortcutsOpen(true)}
+            title="Keyboard shortcuts (press ?)"
+            aria-label="Keyboard shortcuts"
+            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <HelpCircle className="size-4" />
+          </button>
           <ThemeToggle />
           <button onClick={logout} aria-label="Sign out" className="md:hidden rounded-lg p-2 text-slate-400"><LogOut className="size-4" /></button>
         </header>
@@ -614,6 +634,8 @@ export default function Layout() {
             onNav={(to) => { setPaletteOpen(false); navigate(to); }}
           />
         )}
+
+        <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
         <main id="main-content" className="flex-1 overflow-y-auto p-4 sm:p-6">
           <OutletContent />
@@ -910,6 +932,7 @@ function CommandPalette({ onClose, onGo, onNav }: { onClose: () => void; onGo: (
           <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
             <span><Kbd>/</Kbd> search</span>
             <span><Kbd>N</Kbd> lead · <Kbd>D</Kbd> deal · <Kbd>T</Kbd> task</span>
+            <span><Kbd>?</Kbd> shortcuts</span>
           </span>
         </div>
       </div>

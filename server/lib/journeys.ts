@@ -20,6 +20,7 @@ import { db } from "../db";
 import { createObjectService } from "./object-service";
 import { getObjectDef } from "./registry";
 import { mergeTemplate, trackingToken } from "./comm";
+import { sendOutboundWithProvider } from "./integrations/email";
 import { listConditions } from "./access";
 import { parseCriteria, criteriaWhere } from "./segments";
 import { badRequest } from "./http";
@@ -400,6 +401,8 @@ async function executeStep(
             ownerId: journey.createdBy,
           },
         });
+        // Phase 16 (ADR-028): fire the real provider send after the row exists.
+        void sendOutboundWithProvider(message);
         await emitEvent({
           ...base,
           type: "email.sent",
