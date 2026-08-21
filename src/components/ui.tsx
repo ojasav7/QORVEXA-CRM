@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, Children, cloneElement, isValidElement, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X, CheckCircle2, AlertCircle, Info } from "lucide-react";
 
 export function Spinner({ className = "" }: { className?: string }) {
@@ -97,9 +98,12 @@ export function Modal({
   if (!open) return null;
   const resolved = wide ? "lg" : size;
 
-  return (
+  // Portal out of any transform-bearing ancestor (animate-fade-up creates a
+  // containing block that makes fixed positioning relative to it instead of
+  // the viewport — the modal would scroll/move with the page).
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4 sm:p-8 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-8 animate-fade-in"
       onClick={onClose}
     >
       <div
@@ -123,7 +127,8 @@ export function Modal({
         </div>
         <div className="max-h-[calc(100vh-10rem)] overflow-y-auto px-6 py-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

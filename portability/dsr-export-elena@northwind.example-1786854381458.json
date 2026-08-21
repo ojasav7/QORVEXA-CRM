@@ -1,0 +1,72 @@
+{
+  "format": "qorvexa-dsr",
+  "type": "export",
+  "exportedAt": "2026-08-16T04:26:21.447Z",
+  "requesterEmail": "elena@northwind.example",
+  "contact": {
+    "id": "6a813bd9ca04def932f39b45",
+    "orgId": "6a813bd8ca04def932f39b36",
+    "environment": "production",
+    "ownerId": "6a813bd9ca04def932f39b39",
+    "accountId": "6a813bd9ca04def932f39b3d",
+    "promotedFrom": null,
+    "firstName": "Elena",
+    "lastName": "Rodriguez",
+    "email": "elena@northwind.example",
+    "phone": "+1 212 555 0111",
+    "title": "VP Operations",
+    "source": "Referral",
+    "status": "contacted",
+    "tags": [
+      "prospect"
+    ],
+    "custom": {
+      "linkedin": "https://linkedin.com/in/elena-rodriguez",
+      "employeeSize": 4200
+    },
+    "visibility": "org",
+    "createdAt": "2026-08-16T04:26:01.291Z",
+    "updatedAt": "2026-08-16T04:26:01.291Z"
+  },
+  "deals": [],
+  "notes": [],
+  "tasks": [],
+  "consent": [
+    {
+      "id": "6a813bdbca04def932f39c23",
+      "orgId": "6a813bd8ca04def932f39b36",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "marketing",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-07T04:26:02.943Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-16T04:26:03.478Z",
+      "updatedAt": "2026-08-16T04:26:03.478Z"
+    },
+    {
+      "id": "6a813bdbca04def932f39c24",
+      "orgId": "6a813bd8ca04def932f39b36",
+      "environment": "production",
+      "contactId": null,
+      "contactEmail": "elena@northwind.example",
+      "purpose": "communications",
+      "status": "granted",
+      "source": "form",
+      "grantedAt": "2026-07-07T04:26:02.943Z",
+      "withdrawnAt": null,
+      "expiresAt": null,
+      "meta": {
+        "via": "signup"
+      },
+      "createdAt": "2026-08-16T04:26:03.478Z",
+      "updatedAt": "2026-08-16T04:26:03.478Z"
+    }
+  ]
+}

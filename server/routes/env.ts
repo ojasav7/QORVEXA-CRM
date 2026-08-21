@@ -11,11 +11,14 @@ import { emitEvent } from "../lib/events";
 
 const router = Router();
 
-// GET /api/env — current environment (from X-Environment) + the org's environments
+// GET /api/env — current environment (from X-Environment) + the org's environments.
+// Returns sensible defaults when unauthenticated (the client calls this on initial
+// load before login — the session cookie isn't set yet).
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const user = await assertActiveUser(req);
+    const user = (req as any).sessionUser as { orgId: string } | null;
+    if (!user) return ok(res, { environment: "production", environments: ["production"] });
     const environments = await orgEnvironments(user.orgId);
     const environment = await resolveEnvironment(req, user.orgId);
     ok(res, { environment, environments });

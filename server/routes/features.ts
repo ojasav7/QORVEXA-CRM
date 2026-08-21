@@ -10,10 +10,13 @@ import { emitEvent } from "../lib/events";
 const router = Router();
 
 // GET /api/features — merged registry + org overrides for the current environment.
+// Returns sensible defaults when unauthenticated (the client calls this on initial
+// load before login — the session cookie isn't set yet).
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const user = await assertActiveUser(req);
+    const user = (req as any).sessionUser as { orgId: string } | null;
+    if (!user) return ok(res, { environment: "production", features: {} });
     const environment = await resolveEnvironment(req, user.orgId);
     ok(res, { environment, features: await allFeatureStates(user.orgId, environment) });
   })

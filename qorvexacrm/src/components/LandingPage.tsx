@@ -73,11 +73,11 @@ const USE_CASES = [
   { label: "Revenue Operations", desc: "CPQ, contracts, subscriptions, invoicing, and MRR/ARR metrics with full audit trails." },
 ];
 
-const STATS = [
-  { value: "6", label: "object types" },
-  { value: "100%", label: "mutations audited" },
-  { value: "<200ms", label: "dashboard load" },
-  { value: "0", label: "stale metrics" },
+const STATS: [string, string][] = [
+  ["6", "object types"],
+  ["100%", "mutations audited"],
+  ["<200ms", "dashboard load"],
+  ["0", "stale metrics"],
 ];
 
 export function LandingPage() {
